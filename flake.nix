@@ -1,0 +1,31 @@
+{
+    description = "A very basic flake";
+
+    inputs = {
+        nixpkgs.url = "github:nixos/nixpkgs?ref=nixos-unstable";
+    };
+
+    outputs = { self, nixpkgs }: let
+        system = "x86_64-linux";
+        pkgs = import nixpkgs { inherit system; };
+    in {
+        devShells.${system}.default = let
+            ld_path = with pkgs; lib.makeLibraryPath [
+                vulkan-loader
+                libGL
+                libx11
+                libxcursor
+                libxrandr
+                libxi
+                libxkbcommon
+                wayland
+            ];
+        in pkgs.mkShell {
+            packages = with pkgs; [ zig wgpu-native vulkan-loader ];
+
+            shellHook = ''
+                export LD_LIBRARY_PATH=${ld_path}
+            '';
+        };
+    };
+}
