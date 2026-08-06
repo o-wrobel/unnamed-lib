@@ -14,9 +14,19 @@ window: *Window,
 device: wgpu.Device,
 queue: wgpu.Queue,
 surface: wgpu.Surface,
+render_pipeline: wgpu.RenderPipeline,
 
-pub fn init() !App {
+pub fn init(allocator: std.mem.Allocator, io: std.Io) !App {
     log.info("Initializing", .{});
+
+    // Loading shader
+    log.info("Loading shader", .{});
+    const shader_file = try std.Io.Dir.cwd().openFile(io, "my_shader.wgsl", .{});
+    const sf_length = shader_file.length(io) catch unreachable;
+    var sf_reader = shader_file.reader(io, &.{});
+    const shader_text = try sf_reader.interface.allocRemaining(allocator, .limited64(sf_length+1));
+    defer allocator.free(shader_text);
+
     // GLFW
     try glfw.init();
 
@@ -31,48 +41,84 @@ pub fn init() !App {
 
     const adapter = try instance.requestAdapterSync(.{});
 
-    const device_desc: wgpu.Device.Descriptor = .{
-        .label = "My Cool Device",
-        .queue_label = "Default Queue"
-    };
-    const device = try adapter.requestDeviceSync(device_desc);
+    const device = try adapter.requestDeviceSync(.{
+        .label = "My cool device",
+        .queue_label = "Default queue"
+    });
     // TODO: Set up callback functions
 
     const queue = try device.getQueue();
 
-    // Get native window handle and create a wgpu surface
-    var source = wgpu.c.WGPUSurfaceSourceWaylandSurface{
-        .chain = .{
-            .next = null,
-            .sType = wgpu.c.WGPUSType_SurfaceSourceWaylandSurface,
-        },
-        .display = glfw.getWaylandDisplay() orelse @panic("No Wayland display"),
-        .surface = glfw.getWaylandWindow(window) orelse @panic("No Wayland surface"),
+    const surface = init: {
+        // Get native window handle and create a wgpu surface
+        var source = wgpu.c.WGPUSurfaceSourceWaylandSurface{
+            .chain = .{
+                .next = null,
+                .sType = wgpu.c.WGPUSType_SurfaceSourceWaylandSurface,
+            },
+            .display = glfw.getWaylandDisplay() orelse @panic("No Wayland display"),
+            .surface = glfw.getWaylandWindow(window) orelse @panic("No Wayland surface"),
+        };
+
+        const surface_desc = wgpu.c.WGPUSurfaceDescriptor{
+            .nextInChain = @ptrCast(&source.chain),
+            .label = .{ .data = "Surface", .length = "Surface".len },
+        };
+
+        const surface = try instance.createSurface(&surface_desc);
+
+        const surface_capabilities = try surface.getCapabilities(adapter.adapter);
+        const surface_format = surface_capabilities.formats[0];
+
+        surface.configure(.{
+            .width = 400,
+            .height = 400,
+            .format = surface_format,
+            .usage = .{ .render_attachment = true }, // The surface is a target for a render pass
+            .device = device,
+        });
+        break :init surface;
+
     };
 
-    const surface_desc = wgpu.c.WGPUSurfaceDescriptor{
-        .nextInChain = @ptrCast(&source.chain),
-        .label = .{ .data = "Surface", .length = "Surface".len },
+    const render_pipeline = init: {
+        const shader_source: wgpu.ShaderSource = .{ .wgsl = shader_text };
+        const shader_module: wgpu.ShaderModule = try .init(device.device, shader_source);
+
+        const blend_state: wgpu.RenderPipeline.BlendState = .{};
+        const color_target: wgpu.RenderPipeline.ColorTargetState = .{
+            .format = (try surface.getCapabilities(adapter.adapter)).formats[0],
+            .blend = blend_state,
+            .write_mask = .all
+        };
+        break :init try device.createRenderPipeline(.{
+            .primitive = .{
+                .topology = .triangle_list,
+                .strip_index_format = .undefined,
+                .front_face = .ccw,
+                .cull_mode = .none
+            },
+            .vertex = .{
+                .module = shader_module,
+                .entry_point = "vs_main",
+                .buffers = &.{},
+            },
+            .fragment = .{
+                .module = shader_module,
+                .entry_point = "fs_main",
+                .targets = &.{ color_target } // Only one target for only one output color attachment
+            },
+            .depth_stencil = null,
+            .layout = null
+        });
     };
-
-    const surface = try instance.createSurface(&surface_desc);
-
-    const surface_capabilities = try surface.getCapabilities(adapter.adapter);
-    const format = surface_capabilities.formats[0];
-
-    surface.configure(.{
-        .width = 400,
-        .height = 400,
-        .format = format,
-        .usage = .{ .render_attachment = true }, // The surface is a target for a render pass
-        .device = device,
-    });
 
     return .{
         .window = window,
         .device = device,
         .queue = queue,
-        .surface = surface
+        .surface = surface,
+        .render_pipeline = render_pipeline,
     };
 }
 
@@ -82,9 +128,11 @@ pub fn deinit(self: App) void {
     self.queue.deinit();
     self.surface.deinit();
     self.window.destroy();
+    self.render_pipeline.deinit();
 }
 
 pub fn mainLoop(self: *const App) !void {
+    log.info("Executing main loop", .{});
     while (true) {
         glfw.pollEvents();
         if (glfw.windowShouldClose(self.window)) break;
@@ -104,16 +152,17 @@ pub fn mainLoop(self: *const App) !void {
             .label = "My render pass"
         });
 
-        // Stuff goes here, right now the screen is only cleared
+        render_pass.setPipeline(self.render_pipeline);
+        render_pass.draw(3, 1, 0, 0);
 
         render_pass.end();
         render_pass.deinit();
 
         const command = try encoder.finish(.{ .label = "Command buffer" });
 
-        std.log.debug("Submitting command...", .{});
+        // std.log.debug("Submitting command...", .{});
         self.queue.submitCommands(&.{command});
-        std.log.debug("Command submitted", .{});
+        // std.log.debug("Command submitted", .{});
 
         try self.surface.present();
 

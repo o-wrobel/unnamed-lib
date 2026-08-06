@@ -22,7 +22,7 @@
                 wayland
             ];
         in pkgs.mkShell {
-            packages = with pkgs; [ zig wgpu-native vulkan-loader ];
+            packages = with pkgs; [ zig wgpu-native wgsl-analyzer  vulkan-loader ];
 
             shellHook = ''
                 export LD_LIBRARY_PATH=${ld_path}
