@@ -11,7 +11,8 @@
     in {
         devShells.${system}.default = let
             ld_path = with pkgs; lib.makeLibraryPath [
-                vulkan-loader
+              glfw
+              vulkan-loader
                 libGL
                 libx11
                 libxcursor
@@ -25,6 +26,7 @@
 
             shellHook = ''
                 export LD_LIBRARY_PATH=${ld_path}
+                export LIBRARY_PATH=${ld_path}
             '';
         };
     };

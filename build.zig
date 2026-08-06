@@ -7,6 +7,9 @@ pub fn build(b: *std.Build) void {
     const wgpu_dep = b.dependency("wgpu", .{});
     const wgpu = wgpu_dep.module("wgpu");
 
+    const glfw_dep = b.dependency("zglfw", .{});
+    const glfw = glfw_dep.module("root");
+
     const exe = b.addExecutable(.{
         .name = "wgpu",
         .root_module = b.createModule(.{
@@ -15,9 +18,24 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .imports = &.{
                 .{ .module = wgpu, .name = "wgpu" },
+                .{ .module = glfw, .name = "glfw" },
             }
         }),
     });
+
+    // Link the GLFW C library (compiled by zglfw)
+    const glfw_lib = glfw_dep.artifact("glfw");
+    exe.root_module.linkLibrary(glfw_lib);
+    exe.root_module.link_libc = true;
+
+    // On NixOS, X11/Wayland are not in default linker paths.
+    // Add them from the LIBRARY_PATH env var set in flake.nix.
+    if (b.graph.environ_map.get("LIBRARY_PATH")) |lib_path| {
+        var it = std.mem.splitScalar(u8, lib_path, ':');
+        while (it.next()) |dir| {
+            exe.root_module.addLibraryPath(.{ .cwd_relative = dir });
+        }
+    }
 
     // This declares intent for the executable to be installed into the
     // install prefix when running `zig build` (i.e. when executing the default
