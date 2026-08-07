@@ -1,7 +1,10 @@
 const std = @import("std");
-const wgpu = @import("wgpu");
+
 const glfw = @import("glfw");
 const Window = glfw.Window;
+const wgpu = @import("wgpu");
+
+const Vec2f = @Vector(2, f32);
 
 const window_width = 400;
 const window_height = 400;
@@ -15,8 +18,8 @@ device: wgpu.Device,
 queue: wgpu.Queue,
 surface: wgpu.Surface,
 render_pipeline: wgpu.RenderPipeline,
-buffer1: wgpu.Buffer,
-buffer2: wgpu.Buffer,
+vertex_buffer: wgpu.Buffer,
+vertex_count: u32,
 
 pub fn init(allocator: std.mem.Allocator, io: std.Io) !App {
     log.info("Initializing", .{});
@@ -93,6 +96,17 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io) !App {
             .blend = blend_state,
             .write_mask = .all
         };
+
+        const position_attribute: wgpu.RenderPipeline.VertexAttribute = .{
+            .shader_location = 0,
+            .format = .float32x2,
+            .offset = 0
+        };
+        const vertex_buffer_layout: wgpu.RenderPipeline.VertexBufferLayout = .{
+            .array_stride = @sizeOf(Vec2f),
+            .attributes = &.{ position_attribute },
+        };
+
         break :init try device.createRenderPipeline(.{
             .primitive = .{
                 .topology = .triangle_list,
@@ -103,7 +117,7 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io) !App {
             .vertex = .{
                 .module = shader_module,
                 .entry_point = "vs_main",
-                .buffers = &.{},
+                .buffers = &.{ vertex_buffer_layout },
             },
             .fragment = .{
                 .module = shader_module,
@@ -115,60 +129,22 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io) !App {
         });
     };
 
-    const buffer1: wgpu.Buffer, const buffer2: wgpu.Buffer = init: {
-        const Context = struct {
-            ready: bool,
+    const vertex_buffer, const vertex_count: u32 = init: {
+        const vertex_data = [_]Vec2f{
+            .{-0.5, -0.5},
+            .{0.5, -0.5},
+            .{0, 0.5},
 
-            fn onBuffer2Mapped(status: wgpu.c.WGPUMapAsyncStatus, buffer: *const wgpu.Buffer, data: []const u8, user_data: ?*anyopaque) void {
-                const context: *@This() = @alignCast(@ptrCast(user_data));
-                _ = buffer;
-                _ = data;
-                log.debug("Buffer 2 mapped with status: {}", .{status});
-                context.ready = true;
-            }
+            .{-0.55, -0.5},
+            .{-0.05, 0.5},
+            .{-0.55, 0.5},
         };
-
-        const buffer1 = try device.createBuffer(.{
-            .label = "Some GPU-side data buffer",
-            .size = 16,
-            .usage = .{ .copy_dst = true, .copy_src = true },
-            .mapped_at_creation = false
+        const vertex_buffer = try device.createBuffer(.{
+            .size = @sizeOf(@TypeOf(vertex_data)),
+            .usage = .{ .copy_dst = true, .vertex = true }
         });
-        const buffer2 = try device.createBuffer(.{
-            .label = "Output buffer",
-            .size = 16,
-            .usage = .{ .copy_dst = true, .map_read = true },
-            .mapped_at_creation = false
-        });
-
-        const numbers: [16]u8 = temp: {
-            var arr: [16]u8 = undefined;
-            for (0..16) |i| arr[i] = @intCast(i);
-            break :temp arr;
-        };
-        queue.writeBuffer(u8, buffer1, 0, &numbers);
-
-        const encoder = try device.createCommandEncoder(.{});
-        defer encoder.deinit();
-
-        encoder.copyBufferToBuffer(buffer1, 0, buffer2, 0, 16);
-
-        // Submit the copy command FIRST, so the GPU executes it
-        const command = try encoder.finish(.{});
-        queue.submitCommands(&.{command});
-
-        // Now map buffer2 to read back the result
-        var context: Context = .{ .ready = false };
-        try buffer2.mapAsync(.{ .read = true }, Context.onBuffer2Mapped, &context);
-        while (!context.ready) _ = device.poll(false);
-
-        // Read the mapped data
-        const mapped = buffer2.getConstMappedRange(u8, 0, 16) orelse @panic("map failed");
-        log.debug("Buffer2 data: {any}", .{mapped});
-        buffer2.unmap();
-
-        break :init .{ buffer1, buffer2 };
-
+        queue.writeBuffer(Vec2f, vertex_buffer, 0, &vertex_data);
+        break :init .{ vertex_buffer, @intCast((&vertex_data).len) };
     };
 
     return .{
@@ -177,8 +153,8 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io) !App {
         .queue = queue,
         .surface = surface,
         .render_pipeline = render_pipeline,
-        .buffer1 = buffer1,
-        .buffer2 = buffer2
+        .vertex_buffer = vertex_buffer,
+        .vertex_count = vertex_count
     };
 }
 
@@ -189,8 +165,7 @@ pub fn deinit(self: App) void {
     self.surface.deinit();
     self.window.destroy();
     self.render_pipeline.deinit();
-    self.buffer1.deinit();
-    self.buffer2.deinit();
+    self.vertex_buffer.deinit();
 }
 
 pub fn mainLoop(self: *const App) !void {
@@ -215,7 +190,8 @@ pub fn mainLoop(self: *const App) !void {
         });
 
         render_pass.setPipeline(self.render_pipeline);
-        render_pass.draw(3, 1, 0, 0);
+        render_pass.setVertexBuffer(0, self.vertex_buffer, 0, self.vertex_buffer.size);
+        render_pass.draw(self.vertex_count, 1, 0, 0);
 
         render_pass.end();
         render_pass.deinit();
