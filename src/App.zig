@@ -14,8 +14,8 @@ const Vertex = struct {
     color: Color
 };
 
-const window_width = 400;
-const window_height = 400;
+const window_width = 640;
+const window_height = 480;
 const background_color: Color = .{0, 0, 0};
 
 pub const App = @This();
@@ -29,6 +29,8 @@ surface: wgpu.Surface,
 render_pipeline: wgpu.RenderPipeline,
 vertex_buffer: wgpu.Buffer,
 vertex_count: u32,
+index_buffer: wgpu.Buffer,
+index_count: u32,
 
 pub fn init(allocator: std.mem.Allocator, io: std.Io) !App {
     log.info("Initializing", .{});
@@ -148,7 +150,8 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io) !App {
         const vertex_data = [_]Vertex{
             .{ .position = .{-0.5, -0.5}, .color = .{1, 0, 0} },
             .{ .position = .{0.5, -0.5}, .color = .{0, 1, 0} },
-            .{ .position = .{0, 0.5}, .color = .{0, 0, 1} },
+            .{ .position = .{0.5, 0.5}, .color = .{0, 0, 1} },
+            .{ .position = .{-0.5, 0.5}, .color = .{1, 1, 0} },
         };
         const vertex_buffer = try device.createBuffer(.{
             .size = @sizeOf(@TypeOf(vertex_data)),
@@ -158,14 +161,33 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io) !App {
         break :init .{ vertex_buffer, @intCast((&vertex_data).len) };
     };
 
+    const index_buffer, const index_count: u32 = init: {
+        const Index = u32;
+        const index_data = [_]Index{
+            0, 1, 2,
+            0, 2, 3
+        };
+        const index_count: u32 = @intCast((&index_data).len);
+        const index_buffer = try device.createBuffer(.{
+            .size = index_count * @sizeOf(Index),
+            .usage = .{ .copy_dst = true, .index = true }
+        });
+        queue.writeBuffer(Index, index_buffer, 0, &index_data);
+        break :init .{ index_buffer, index_count };
+    };
+
     return .{
         .window = window,
         .device = device,
         .queue = queue,
         .surface = surface,
         .render_pipeline = render_pipeline,
+
         .vertex_buffer = vertex_buffer,
-        .vertex_count = vertex_count
+        .vertex_count = vertex_count,
+
+        .index_buffer = index_buffer,
+        .index_count = index_count
     };
 }
 
@@ -176,7 +198,9 @@ pub fn deinit(self: App) void {
     self.surface.deinit();
     self.window.destroy();
     self.render_pipeline.deinit();
+
     self.vertex_buffer.deinit();
+    self.index_buffer.deinit();
 }
 
 pub fn mainLoop(self: *const App) !void {
@@ -201,8 +225,11 @@ pub fn mainLoop(self: *const App) !void {
         });
 
         render_pass.setPipeline(self.render_pipeline);
+
         render_pass.setVertexBuffer(0, self.vertex_buffer, 0, self.vertex_buffer.size);
-        render_pass.draw(self.vertex_count, 1, 0, 0);
+        render_pass.setIndexBuffer(self.index_buffer, .uint32, 0, self.index_buffer.size);
+        render_pass.drawIndexed(self.index_count, 1, 0, 0, 0);
+        // render_pass.draw(self.vertex_count, 1, 0, 0);
 
         render_pass.end();
         render_pass.deinit();
