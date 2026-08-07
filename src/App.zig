@@ -14,6 +14,11 @@ const Vertex = struct {
     color: Color
 };
 
+const MyUniform = struct {
+    time: f32 = 0,
+    speed: f32
+};
+
 const window_width = 640;
 const window_height = 480;
 const background_color: Color = .{0, 0, 0};
@@ -103,12 +108,14 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io) !App {
     };
 
     const uniform_buffer = init: {
-        const current_time: f32 = 1;
         const uniform_buffer = try device.createBuffer(.{
             .size = 4 * @sizeOf(f32),
             .usage = .{ .copy_dst = true, .uniform = true }
         });
-        queue.writeBuffer(f32, uniform_buffer, 0,&.{current_time});
+        const init_value: MyUniform = .{
+            .speed = 1
+        };
+        queue.writeBuffer(MyUniform, uniform_buffer, 0, &.{ init_value });
         break :init uniform_buffer;
     };
 
@@ -124,17 +131,18 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io) !App {
         break :init try device.createBindGroupLayout(.{ .entries = &.{ binding_layout }});
     };
 
-    const binding: wgpu.BindGroup.Entry = .{
-        .binding = 0,
-        .buffer = uniform_buffer,
-        .offset = 0,
-        .size = 4 * @sizeOf(f32),
+    const bind_group = init: {
+        const binding: wgpu.BindGroup.Entry = .{
+            .binding = 0,
+            .buffer = uniform_buffer,
+            .offset = 0,
+            .size = 4 * @sizeOf(f32),
+        };
+        break :init try device.createBindGroup(.{
+            .layout = bind_group_layout,
+            .entries = &.{ binding }
+        });
     };
-
-    const bind_group = try device.createBindGroup(.{
-        .layout = bind_group_layout,
-        .entries = &.{ binding }
-    });
 
     const render_pipeline = init: {
         const shader_source: wgpu.ShaderSource = .{ .wgsl = shader_text };
@@ -255,7 +263,11 @@ pub fn mainLoop(self: *const App) !void {
         glfw.pollEvents();
         if (glfw.windowShouldClose(self.window)) break;
         const time: f32 = @floatCast(glfw.getTime());
-        self.queue.writeBuffer(f32, self.uniform_buffer, 0, &.{ time });
+        const uniform: MyUniform = .{
+            .time = time,
+            .speed = 2
+        };
+        self.queue.writeBuffer(MyUniform, self.uniform_buffer, 0, &.{ uniform });
 
         const target_view = try getNextSurfaceTextureView(self.surface) orelse continue;
         const encoder = try self.device.createCommandEncoder(.{ .label = "My command encoder" });
@@ -279,7 +291,6 @@ pub fn mainLoop(self: *const App) !void {
         render_pass.setIndexBuffer(self.index_buffer, .uint32, 0, self.index_buffer.size);
         render_pass.setBindGroup(0, self.bind_group, &.{});
         render_pass.drawIndexed(self.index_count, 1, 0, 0, 0);
-        // render_pass.draw(self.vertex_count, 1, 0, 0);
 
         render_pass.end();
         render_pass.deinit();
