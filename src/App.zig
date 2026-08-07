@@ -15,6 +15,8 @@ device: wgpu.Device,
 queue: wgpu.Queue,
 surface: wgpu.Surface,
 render_pipeline: wgpu.RenderPipeline,
+buffer1: wgpu.Buffer,
+buffer2: wgpu.Buffer,
 
 pub fn init(allocator: std.mem.Allocator, io: std.Io) !App {
     log.info("Initializing", .{});
@@ -113,12 +115,70 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io) !App {
         });
     };
 
+    const buffer1: wgpu.Buffer, const buffer2: wgpu.Buffer = init: {
+        const Context = struct {
+            ready: bool,
+
+            fn onBuffer2Mapped(status: wgpu.c.WGPUMapAsyncStatus, buffer: *const wgpu.Buffer, data: []const u8, user_data: ?*anyopaque) void {
+                const context: *@This() = @alignCast(@ptrCast(user_data));
+                _ = buffer;
+                _ = data;
+                log.debug("Buffer 2 mapped with status: {}", .{status});
+                context.ready = true;
+            }
+        };
+
+        const buffer1 = try device.createBuffer(.{
+            .label = "Some GPU-side data buffer",
+            .size = 16,
+            .usage = .{ .copy_dst = true, .copy_src = true },
+            .mapped_at_creation = false
+        });
+        const buffer2 = try device.createBuffer(.{
+            .label = "Output buffer",
+            .size = 16,
+            .usage = .{ .copy_dst = true, .map_read = true },
+            .mapped_at_creation = false
+        });
+
+        const numbers: [16]u8 = temp: {
+            var arr: [16]u8 = undefined;
+            for (0..16) |i| arr[i] = @intCast(i);
+            break :temp arr;
+        };
+        queue.writeBuffer(u8, buffer1, 0, &numbers);
+
+        const encoder = try device.createCommandEncoder(.{});
+        defer encoder.deinit();
+
+        encoder.copyBufferToBuffer(buffer1, 0, buffer2, 0, 16);
+
+        // Submit the copy command FIRST, so the GPU executes it
+        const command = try encoder.finish(.{});
+        queue.submitCommands(&.{command});
+
+        // Now map buffer2 to read back the result
+        var context: Context = .{ .ready = false };
+        try buffer2.mapAsync(.{ .read = true }, Context.onBuffer2Mapped, &context);
+        while (!context.ready) _ = device.poll(false);
+
+        // Read the mapped data
+        const mapped = buffer2.getConstMappedRange(u8, 0, 16) orelse @panic("map failed");
+        log.debug("Buffer2 data: {any}", .{mapped});
+        buffer2.unmap();
+
+        break :init .{ buffer1, buffer2 };
+
+    };
+
     return .{
         .window = window,
         .device = device,
         .queue = queue,
         .surface = surface,
         .render_pipeline = render_pipeline,
+        .buffer1 = buffer1,
+        .buffer2 = buffer2
     };
 }
 
@@ -129,6 +189,8 @@ pub fn deinit(self: App) void {
     self.surface.deinit();
     self.window.destroy();
     self.render_pipeline.deinit();
+    self.buffer1.deinit();
+    self.buffer2.deinit();
 }
 
 pub fn mainLoop(self: *const App) !void {
