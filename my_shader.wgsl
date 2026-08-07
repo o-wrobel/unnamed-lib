@@ -1,3 +1,5 @@
+@group(0) @binding(0) var<uniform> time: f32;
+
 struct VertexInput {
     @location(0) position: vec2f,
     @location(1) color: vec3f
@@ -11,8 +13,17 @@ struct VertexOutput {
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
     let ratio = 640 / 480.0;
+    let ratio_vec = vec2f(1, ratio);
+    let speed = 2.0;
+    let radius = 0.2;
+    let offset = radius * vec2f(cos(time*speed), sin(time*speed));
+
+    var pos = in.position;
+    pos += offset;
+    pos *= ratio_vec;
+
     var out: VertexOutput;
-    out.position = vec4f(in.position.x, in.position.y * ratio, 0, 1);
+    out.position = vec4f(pos, 0, 1);
     out.color = in.color;
     return out;
 }

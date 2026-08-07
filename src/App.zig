@@ -26,11 +26,16 @@ window: *Window,
 device: wgpu.Device,
 queue: wgpu.Queue,
 surface: wgpu.Surface,
+bind_group: wgpu.BindGroup,
 render_pipeline: wgpu.RenderPipeline,
+
 vertex_buffer: wgpu.Buffer,
 vertex_count: u32,
+
 index_buffer: wgpu.Buffer,
 index_count: u32,
+
+uniform_buffer: wgpu.Buffer,
 
 pub fn init(allocator: std.mem.Allocator, io: std.Io) !App {
     log.info("Initializing", .{});
@@ -97,6 +102,40 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io) !App {
 
     };
 
+    const uniform_buffer = init: {
+        const current_time: f32 = 1;
+        const uniform_buffer = try device.createBuffer(.{
+            .size = 4 * @sizeOf(f32),
+            .usage = .{ .copy_dst = true, .uniform = true }
+        });
+        queue.writeBuffer(f32, uniform_buffer, 0,&.{current_time});
+        break :init uniform_buffer;
+    };
+
+    const bind_group_layout = init: {
+        const binding_layout: wgpu.BindGroupLayout.Entry = .{
+            .binding = 0,
+            .visibility = .{ .vertex = true },
+            .buffer = .{
+                .binding_type = .uniform,
+                .min_binding_size = 4 * @sizeOf(f32)
+            }
+        };
+        break :init try device.createBindGroupLayout(.{ .entries = &.{ binding_layout }});
+    };
+
+    const binding: wgpu.BindGroup.Entry = .{
+        .binding = 0,
+        .buffer = uniform_buffer,
+        .offset = 0,
+        .size = 4 * @sizeOf(f32),
+    };
+
+    const bind_group = try device.createBindGroup(.{
+        .layout = bind_group_layout,
+        .entries = &.{ binding }
+    });
+
     const render_pipeline = init: {
         const shader_source: wgpu.ShaderSource = .{ .wgsl = shader_text };
         const shader_module: wgpu.ShaderModule = try .init(device.device, shader_source);
@@ -123,6 +162,8 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io) !App {
             .attributes = &.{ position_attribute, color_attribute },
         };
 
+        const layout = try device.createPipelineLayout("My pipeline layout", &.{ bind_group_layout }, 0);
+
         break :init try device.createRenderPipeline(.{
             .label = "My render pipeline",
             .primitive = .{
@@ -141,8 +182,8 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io) !App {
                 .entry_point = "fs_main",
                 .targets = &.{ color_target } // Only one target for only one output color attachment
             },
+            .layout = layout,
             .depth_stencil = null,
-            .layout = null
         });
     };
 
@@ -181,13 +222,16 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io) !App {
         .device = device,
         .queue = queue,
         .surface = surface,
+        .bind_group = bind_group,
         .render_pipeline = render_pipeline,
 
         .vertex_buffer = vertex_buffer,
         .vertex_count = vertex_count,
 
         .index_buffer = index_buffer,
-        .index_count = index_count
+        .index_count = index_count,
+
+        .uniform_buffer = uniform_buffer,
     };
 }
 
@@ -197,10 +241,12 @@ pub fn deinit(self: App) void {
     self.queue.deinit();
     self.surface.deinit();
     self.window.destroy();
+    self.bind_group.deinit();
     self.render_pipeline.deinit();
 
     self.vertex_buffer.deinit();
     self.index_buffer.deinit();
+    self.uniform_buffer.deinit();
 }
 
 pub fn mainLoop(self: *const App) !void {
@@ -208,6 +254,9 @@ pub fn mainLoop(self: *const App) !void {
     while (true) {
         glfw.pollEvents();
         if (glfw.windowShouldClose(self.window)) break;
+        const time: f32 = @floatCast(glfw.getTime());
+        self.queue.writeBuffer(f32, self.uniform_buffer, 0, &.{ time });
+
         const target_view = try getNextSurfaceTextureView(self.surface) orelse continue;
         const encoder = try self.device.createCommandEncoder(.{ .label = "My command encoder" });
         defer encoder.deinit();
@@ -228,6 +277,7 @@ pub fn mainLoop(self: *const App) !void {
 
         render_pass.setVertexBuffer(0, self.vertex_buffer, 0, self.vertex_buffer.size);
         render_pass.setIndexBuffer(self.index_buffer, .uint32, 0, self.index_buffer.size);
+        render_pass.setBindGroup(0, self.bind_group, &.{});
         render_pass.drawIndexed(self.index_count, 1, 0, 0, 0);
         // render_pass.draw(self.vertex_count, 1, 0, 0);
 
