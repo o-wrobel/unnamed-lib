@@ -5,9 +5,18 @@ const Window = glfw.Window;
 const wgpu = @import("wgpu");
 
 const Vec2f = @Vector(2, f32);
+const Color = @Vector(3, f32);
+
+const Vertex = struct {
+    const pos_format: wgpu.RenderPipeline.VertexFormat = .float32x2;
+    const col_format: wgpu.RenderPipeline.VertexFormat = .float32x3;
+    position: Vec2f,
+    color: Color
+};
 
 const window_width = 400;
 const window_height = 400;
+const background_color: Color = .{0, 0, 0};
 
 pub const App = @This();
 
@@ -99,15 +108,21 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io) !App {
 
         const position_attribute: wgpu.RenderPipeline.VertexAttribute = .{
             .shader_location = 0,
-            .format = .float32x2,
+            .format = Vertex.pos_format,
             .offset = 0
         };
+        const color_attribute: wgpu.RenderPipeline.VertexAttribute = .{
+            .shader_location = 1,
+            .format = Vertex.col_format,
+            .offset = @sizeOf(Vec2f) // TODO: Replace this with @typeOf(position)
+        };
         const vertex_buffer_layout: wgpu.RenderPipeline.VertexBufferLayout = .{
-            .array_stride = @sizeOf(Vec2f),
-            .attributes = &.{ position_attribute },
+            .array_stride = @sizeOf(Vertex),
+            .attributes = &.{ position_attribute, color_attribute },
         };
 
         break :init try device.createRenderPipeline(.{
+            .label = "My render pipeline",
             .primitive = .{
                 .topology = .triangle_list,
                 .strip_index_format = .undefined,
@@ -130,20 +145,16 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io) !App {
     };
 
     const vertex_buffer, const vertex_count: u32 = init: {
-        const vertex_data = [_]Vec2f{
-            .{-0.5, -0.5},
-            .{0.5, -0.5},
-            .{0, 0.5},
-
-            .{-0.55, -0.5},
-            .{-0.05, 0.5},
-            .{-0.55, 0.5},
+        const vertex_data = [_]Vertex{
+            .{ .position = .{-0.5, -0.5}, .color = .{1, 0, 0} },
+            .{ .position = .{0.5, -0.5}, .color = .{0, 1, 0} },
+            .{ .position = .{0, 0.5}, .color = .{0, 0, 1} },
         };
         const vertex_buffer = try device.createBuffer(.{
             .size = @sizeOf(@TypeOf(vertex_data)),
             .usage = .{ .copy_dst = true, .vertex = true }
         });
-        queue.writeBuffer(Vec2f, vertex_buffer, 0, &vertex_data);
+        queue.writeBuffer(Vertex, vertex_buffer, 0, &vertex_data);
         break :init .{ vertex_buffer, @intCast((&vertex_data).len) };
     };
 
@@ -173,13 +184,13 @@ pub fn mainLoop(self: *const App) !void {
     while (true) {
         glfw.pollEvents();
         if (glfw.windowShouldClose(self.window)) break;
-        const target_view = try getNextSurfaceTextureView(self.surface);
+        const target_view = try getNextSurfaceTextureView(self.surface) orelse continue;
         const encoder = try self.device.createCommandEncoder(.{ .label = "My command encoder" });
         defer encoder.deinit();
 
         const color_attachment: wgpu.RenderPassEncoder.ColorAttachment = .{
             .view = target_view,
-            .clear_value = color(0.9, 0.1, 0.5, 1),
+            .clear_value = color(background_color),
             .load_op = .clear,
             .store_op = .store,
         };
@@ -209,11 +220,22 @@ pub fn mainLoop(self: *const App) !void {
     }
 }
 
-fn getNextSurfaceTextureView(surface: wgpu.Surface) !wgpu.TextureView {
+fn getNextSurfaceTextureView(surface: wgpu.Surface) !?wgpu.TextureView {
      const result = surface.getCurrentTexture();
 
-     std.debug.assert(result == .success);
-     const surface_texture = result.success;
+     const surface_texture = init: switch (result) {
+         .success => {
+             @branchHint(.likely);
+             break :init result.success;
+         },
+         .suboptimal => { break :init result.suboptimal; },
+         .timeout => { return null; },
+         else => {
+             @branchHint(.unlikely);
+             std.debug.panic("Got surface texture result: {}", .{result});
+         }
+     };
+
      const view: wgpu.TextureView = try .init(
          surface_texture.texture,
          wgpu.TextureView.Descriptor{
@@ -250,11 +272,11 @@ fn printLimits(limits: wgpu.c.WGPULimits) void {
     }
 }
 
-fn color(r: f64, g: f64, b: f64, a: f64) wgpu.Color {
+fn color(c: Color) wgpu.Color {
     return .{
-        .r = r,
-        .g = g,
-        .b = b,
-        .a = a
+        .r = c[0],
+        .g = c[1],
+        .b = c[2],
+        .a = 1
     };
 }
