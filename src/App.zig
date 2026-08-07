@@ -16,7 +16,8 @@ const Vertex = struct {
 
 const MyUniform = struct {
     time: f32 = 0,
-    speed: f32
+    speed: f32,
+    center: [2]f32 = .{0, 0},
 };
 
 const window_width = 640;
@@ -45,14 +46,6 @@ uniform_buffer: wgpu.Buffer,
 pub fn init(allocator: std.mem.Allocator, io: std.Io) !App {
     log.info("Initializing", .{});
 
-    // Loading shader
-    log.info("Loading shader", .{});
-    const shader_file = try std.Io.Dir.cwd().openFile(io, "my_shader.wgsl", .{});
-    const sf_length = shader_file.length(io) catch unreachable;
-    var sf_reader = shader_file.reader(io, &.{});
-    const shader_text = try sf_reader.interface.allocRemaining(allocator, .limited64(sf_length+1));
-    defer allocator.free(shader_text);
-
     // GLFW
     try glfw.init();
 
@@ -66,6 +59,8 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io) !App {
     defer instance.deinit();
 
     const adapter = try instance.requestAdapterSync(.{});
+    defer adapter.deinit();
+    printLimits(try adapter.getLimits());
 
     const device = try adapter.requestDeviceSync(.{
         .label = "My cool device",
@@ -107,9 +102,21 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io) !App {
 
     };
 
+    // Loading shader
+    log.info("Loading shader", .{});
+    const shader_module: wgpu.ShaderModule = init: {
+        const shader_file = try std.Io.Dir.cwd().openFile(io, "my_shader.wgsl", .{});
+        const sf_length = shader_file.length(io) catch unreachable;
+        var sf_reader = shader_file.reader(io, &.{});
+        const shader_text = try sf_reader.interface.allocRemaining(allocator, .limited64(sf_length+1));
+        defer allocator.free(shader_text);
+        const shader_source: wgpu.ShaderSource = .{ .wgsl = shader_text };
+        break :init try .init(device.device, shader_source);
+    };
+
     const uniform_buffer = init: {
         const uniform_buffer = try device.createBuffer(.{
-            .size = 4 * @sizeOf(f32),
+            .size = @sizeOf(MyUniform),
             .usage = .{ .copy_dst = true, .uniform = true }
         });
         const init_value: MyUniform = .{
@@ -125,8 +132,8 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io) !App {
             .visibility = .{ .vertex = true },
             .buffer = .{
                 .binding_type = .uniform,
-                .min_binding_size = 4 * @sizeOf(f32)
-            }
+                .min_binding_size = @sizeOf(MyUniform),
+            },
         };
         break :init try device.createBindGroupLayout(.{ .entries = &.{ binding_layout }});
     };
@@ -136,7 +143,7 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io) !App {
             .binding = 0,
             .buffer = uniform_buffer,
             .offset = 0,
-            .size = 4 * @sizeOf(f32),
+            .size = @sizeOf(MyUniform)
         };
         break :init try device.createBindGroup(.{
             .layout = bind_group_layout,
@@ -145,9 +152,6 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io) !App {
     };
 
     const render_pipeline = init: {
-        const shader_source: wgpu.ShaderSource = .{ .wgsl = shader_text };
-        const shader_module: wgpu.ShaderModule = try .init(device.device, shader_source);
-
         const blend_state: wgpu.RenderPipeline.BlendState = .{};
         const color_target: wgpu.RenderPipeline.ColorTargetState = .{
             .format = (try surface.getCapabilities(adapter.adapter)).formats[0],
@@ -265,7 +269,7 @@ pub fn mainLoop(self: *const App) !void {
         const time: f32 = @floatCast(glfw.getTime());
         const uniform: MyUniform = .{
             .time = time,
-            .speed = 2
+            .speed = 2,
         };
         self.queue.writeBuffer(MyUniform, self.uniform_buffer, 0, &.{ uniform });
 

@@ -1,6 +1,7 @@
 struct MyUniform {
     time: f32,
-    speed: f32
+    speed: f32,
+    center: vec2f,
 }
 
 @group(0) @binding(0) var<uniform> my_uniform: MyUniform;
@@ -28,6 +29,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
 
     var pos = in.position;
     pos = pos * rotation_matrix;
+    pos += my_uniform.center;
     pos *= ratio_vec;
 
     var out: VertexOutput;
