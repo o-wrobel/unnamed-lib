@@ -7,6 +7,8 @@ const wgpu = @import("wgpu");
 const Vec2f = @Vector(2, f32);
 const Color = @Vector(3, f32);
 
+const uniform_stride = 256;
+
 const Vertex = struct {
     const pos_format: wgpu.RenderPipeline.VertexFormat = .float32x2;
     const col_format: wgpu.RenderPipeline.VertexFormat = .float32x3;
@@ -16,7 +18,7 @@ const Vertex = struct {
 
 const MyUniform = struct {
     time: f32 = 0,
-    speed: f32,
+    speed: f32 = 1,
     center: [2]f32 = .{0, 0},
 };
 
@@ -115,14 +117,23 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io) !App {
     };
 
     const uniform_buffer = init: {
+        // const min_alignment = (try adapter.getLimits()).minUniformBufferOffsetAlignment;
+        // const uniform_stride = ceilToNextMultiple(@sizeOf(MyUniform), min_alignment);
+        // TODO: Figure this out instead of hard-coding
+
         const uniform_buffer = try device.createBuffer(.{
-            .size = @sizeOf(MyUniform),
+            .size = 2*uniform_stride,
             .usage = .{ .copy_dst = true, .uniform = true }
         });
-        const init_value: MyUniform = .{
+        const value_1: MyUniform = .{
             .speed = 1
         };
-        queue.writeBuffer(MyUniform, uniform_buffer, 0, &.{ init_value });
+        const value_2: MyUniform = .{
+            .speed = 2,
+            .center = .{1, 0}
+        };
+        queue.writeBuffer(MyUniform, uniform_buffer, 0, &.{ value_1 });
+        queue.writeBuffer(MyUniform, uniform_buffer, uniform_stride, &.{ value_2 });
         break :init uniform_buffer;
     };
 
@@ -133,6 +144,7 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io) !App {
             .buffer = .{
                 .binding_type = .uniform,
                 .min_binding_size = @sizeOf(MyUniform),
+                .has_dynamic_offset = true
             },
         };
         break :init try device.createBindGroupLayout(.{ .entries = &.{ binding_layout }});
@@ -146,6 +158,7 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io) !App {
             .size = @sizeOf(MyUniform)
         };
         break :init try device.createBindGroup(.{
+            .label = "My bind group",
             .layout = bind_group_layout,
             .entries = &.{ binding }
         });
@@ -200,11 +213,13 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io) !App {
     };
 
     const vertex_buffer, const vertex_count: u32 = init: {
+        const l = 0.3;
         const vertex_data = [_]Vertex{
-            .{ .position = .{-0.5, -0.5}, .color = .{1, 0, 0} },
-            .{ .position = .{0.5, -0.5}, .color = .{0, 1, 0} },
-            .{ .position = .{0.5, 0.5}, .color = .{0, 0, 1} },
-            .{ .position = .{-0.5, 0.5}, .color = .{1, 1, 0} },
+            .{ .position = .{-l, -l}, .color = .{1, 0, 0} },
+            .{ .position = .{l, -l}, .color = .{0, 1, 0} },
+            .{ .position = .{l, l}, .color = .{0, 0, 1} },
+            .{ .position = .{-l, l}, .color = .{1, 1, 0} },
+
         };
         const vertex_buffer = try device.createBuffer(.{
             .size = @sizeOf(@TypeOf(vertex_data)),
@@ -267,11 +282,18 @@ pub fn mainLoop(self: *const App) !void {
         glfw.pollEvents();
         if (glfw.windowShouldClose(self.window)) break;
         const time: f32 = @floatCast(glfw.getTime());
-        const uniform: MyUniform = .{
+        const uniform1: MyUniform = .{
             .time = time,
-            .speed = 2,
+            .center = .{ -0.5, 0 },
+            .speed = 1,
         };
-        self.queue.writeBuffer(MyUniform, self.uniform_buffer, 0, &.{ uniform });
+        const uniform2: MyUniform = .{
+            .time = time,
+            .center = .{ 0.5, 0 },
+            .speed = -1
+        };
+        self.queue.writeBuffer(MyUniform, self.uniform_buffer, 0, &.{ uniform1 });
+        self.queue.writeBuffer(MyUniform, self.uniform_buffer, uniform_stride, &.{ uniform2 });
 
         const target_view = try getNextSurfaceTextureView(self.surface) orelse continue;
         const encoder = try self.device.createCommandEncoder(.{ .label = "My command encoder" });
@@ -293,7 +315,11 @@ pub fn mainLoop(self: *const App) !void {
 
         render_pass.setVertexBuffer(0, self.vertex_buffer, 0, self.vertex_buffer.size);
         render_pass.setIndexBuffer(self.index_buffer, .uint32, 0, self.index_buffer.size);
-        render_pass.setBindGroup(0, self.bind_group, &.{});
+
+        render_pass.setBindGroup(0, self.bind_group, &.{ 0 });
+        render_pass.drawIndexed(self.index_count, 1, 0, 0, 0);
+
+        render_pass.setBindGroup(0, self.bind_group, &.{ @intCast(uniform_stride) });
         render_pass.drawIndexed(self.index_count, 1, 0, 0, 0);
 
         render_pass.end();
@@ -357,11 +383,17 @@ fn printLimits(limits: wgpu.c.WGPULimits) void {
     inline for (fields) |f| {
         const val = @field(limits, f.name);
         if (@typeInfo(f.type) != .pointer) {
-            std.log.info("{s}: {}", .{ f.name,  val});
+            log.debug("{s}: {}", .{ f.name,  val});
         } else {
-            std.log.info("{s}: @{*}", .{ f.name,  val});
+            log.debug("{s}: @{*}", .{ f.name,  val});
         }
     }
+}
+
+fn ceilToNextMultiple(value: usize, step: usize) usize {
+    const add: usize = if (value % step == 0) 0 else 1;
+    const divide_and_ceil: usize = value / step + add;
+    return step * divide_and_ceil;
 }
 
 fn color(c: Color) wgpu.Color {
