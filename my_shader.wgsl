@@ -1,7 +1,8 @@
 struct MyUniform {
     time: f32,
-    speed: f32,
-    center: vec2f,
+    pitch: f32,
+    yaw: f32,
+    roll: f32,
 }
 
 @group(0) @binding(0) var<uniform> my_uniform: MyUniform;
@@ -19,49 +20,45 @@ struct VertexOutput {
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
     let ratio = 640 / 480.0;
+    let pitch = radians(my_uniform.pitch);
+    let yaw = radians(my_uniform.yaw);
+    let roll = radians(my_uniform.roll);
 
-    var x_angle: f32 = 90 - radians(20.);
-    x_angle = my_uniform.time;
-    var y_angle: f32 = 90 - radians(20.);
-    y_angle = my_uniform.time;
-    var z_angle: f32 = 90 - radians(20.);
-    z_angle = my_uniform.time;
+    let pitch_cos = cos(pitch);
+    let pitch_sin = sin(pitch);
 
-    let x_cos = cos(x_angle);
-    let x_sin = sin(x_angle);
+    let yaw_cos = cos(yaw);
+    let yaw_sin = sin(yaw);
 
-    let y_cos = cos(y_angle);
-    let y_sin = sin(y_angle);
+    let roll_cos = cos(roll);
+    let roll_sin = sin(roll);
 
-    let z_cos = cos(z_angle);
-    let z_sin = sin(z_angle);
+    let pitch_rotation = transpose(mat3x3f(
+        1, 0, 0,
+        0, pitch_cos, pitch_sin,
+        0, -pitch_sin, pitch_cos,
+    ));
+
+    let yaw_rotation = transpose(mat3x3f(
+        yaw_cos, 0, -yaw_sin,
+        0, 1, 0,
+        yaw_sin, 0, yaw_cos
+    ));
 
     // Rotation across Z axis
-    let z_rotation = mat3x3f(
-        x_cos, x_sin, 0,
-        -x_sin, x_cos, 0,
+    let roll_rotation = transpose(mat3x3f(
+        roll_cos, roll_sin, 0,
+        -roll_sin, roll_cos, 0,
         0, 0, 1,
-    );
-
-    let x_rotation = mat3x3f(
-        1, 0, 0,
-        0, y_cos, y_sin,
-        0, -y_sin, y_cos,
-    );
-
-    let y_rotation = mat3x3f(
-        z_cos, 0, z_sin,
-        0, 1, 0,
-        -z_sin, 0, z_cos
-    );
+    ));
 
     var pos = in.position;
-    pos *= x_rotation; // X
-    pos *= y_rotation; // Y
-    pos *= z_rotation; // Z
+    pos *= pitch_rotation; // pitch (X)
+    pos *= yaw_rotation; // yaw   (Y)
+    pos *= roll_rotation; // roll  (Z)
 
     var out: VertexOutput;
-    out.position = vec4f(pos.x, pos.y*ratio, 0, 1);
+    out.position = vec4f(pos.x, pos.y*ratio, pos.z * 0.5 + 0.5, 1);
     out.color = in.color;
     return out;
 }

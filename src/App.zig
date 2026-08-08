@@ -19,8 +19,9 @@ const Vertex = struct {
 
 const MyUniform = struct {
     time: f32 = 0,
-    speed: f32 = 1,
-    center: [2]f32 = .{0, 0},
+    pitch: f32 = 0,
+    yaw: f32 = 0,
+    roll: f32 = 0
 };
 
 const window_width = 640;
@@ -43,6 +44,9 @@ vertex_count: u32,
 
 index_buffer: wgpu.Buffer,
 index_count: u32,
+
+depth_texture: wgpu.Texture,
+depth_texture_view: wgpu.TextureView,
 
 uniform_buffer: wgpu.Buffer,
 
@@ -95,8 +99,8 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io) !App {
         const surface_format = surface_capabilities.formats[0];
 
         surface.configure(.{
-            .width = 400,
-            .height = 400,
+            .width = window_width,
+            .height = window_height,
             .format = surface_format,
             .usage = .{ .render_attachment = true }, // The surface is a target for a render pass
             .device = device,
@@ -126,15 +130,6 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io) !App {
             .size = 2*uniform_stride,
             .usage = .{ .copy_dst = true, .uniform = true }
         });
-        const value_1: MyUniform = .{
-            .speed = 1
-        };
-        const value_2: MyUniform = .{
-            .speed = 2,
-            .center = .{1, 0}
-        };
-        queue.writeBuffer(MyUniform, uniform_buffer, 0, &.{ value_1 });
-        queue.writeBuffer(MyUniform, uniform_buffer, uniform_stride, &.{ value_2 });
         break :init uniform_buffer;
     };
 
@@ -209,19 +204,25 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io) !App {
                 .targets = &.{ color_target } // Only one target for only one output color attachment
             },
             .layout = layout,
-            .depth_stencil = null,
+            .depth_stencil = .{
+                .depth_compare = .less,
+                .depth_write_enabled = true,
+                .format = .depth24_plus,
+                .stencil_read_mask = 0,
+                .stencil_write_mask = 0
+            },
         });
     };
 
     const vertex_buffer, const vertex_count: u32 = init: {
         const h = 0.5;
         const l = 0.3;
-        const grey = 0.2;
+        const grey = 0.8;
         const vertex_data = [_]Vertex{
-            .{ .position = .{-h, -h, -l}, .color = .{0, 1, 0} },
+            .{ .position = .{-h, -h, -l}, .color = .{1, 0, 0} },
             .{ .position = .{h, -h, -l}, .color = .{0, 1, 0} },
-            .{ .position = .{h, h, -l}, .color = .{0, 1, 0} },
-            .{ .position = .{-h, h, -l}, .color = .{0, 1, 0} },
+            .{ .position = .{h, h, -l}, .color = .{0, 0, 1} },
+            .{ .position = .{-h, h, -l}, .color = .{1, 0, 1} },
 
             .{ .position = .{0, 0, h}, .color = @splat(grey) },
 
@@ -254,6 +255,18 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io) !App {
         break :init .{ index_buffer, index_count };
     };
 
+    const depth_texture = try device.createTexture(.{
+        .usage = .{ .render_attachment = true },
+        .dimension = .@"2d",
+        .format = .depth24_plus,
+        .size = .{ .width = window_width, .height = window_height, },
+    });
+    const depth_texture_view = try depth_texture.createView(.{
+        .aspect = .depth_only,
+        .dimension = .@"2d",
+        .format = .depth24_plus,
+    });
+
     return .{
         .window = window,
         .device = device,
@@ -267,6 +280,9 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io) !App {
 
         .index_buffer = index_buffer,
         .index_count = index_count,
+
+        .depth_texture = depth_texture,
+        .depth_texture_view = depth_texture_view,
 
         .uniform_buffer = uniform_buffer,
     };
@@ -292,16 +308,13 @@ pub fn mainLoop(self: *const App) !void {
         glfw.pollEvents();
         if (glfw.windowShouldClose(self.window)) break;
         const time: f32 = @floatCast(glfw.getTime());
+        const t = std.math.radiansToDegrees(time);
         const uniform1: MyUniform = .{
             .time = time,
-            .center = .{ -0.5, 0 },
-            .speed = 1,
+            .pitch = t,
+            .yaw = 0,
+            .roll = 0,
         };
-        // const uniform2: MyUniform = .{
-        //     .time = time,
-        //     .center = .{ 0.5, 0 },
-        //     .speed = -1
-        // };
         self.queue.writeBuffer(MyUniform, self.uniform_buffer, 0, &.{ uniform1 });
         // self.queue.writeBuffer(MyUniform, self.uniform_buffer, uniform_stride, &.{ uniform2 });
 
@@ -318,7 +331,14 @@ pub fn mainLoop(self: *const App) !void {
 
         const render_pass = try encoder.beginRenderPass(.{
             .color_attachments = &.{color_attachment},
-            .label = "My render pass"
+            .label = "My render pass",
+            .depth_stencil_attachment = .{
+                .view = self.depth_texture_view,
+                .depth_clear_value = 1,
+                .depth_load_op = .clear,
+                .depth_store_op = .store,
+                .depth_read_only = false,
+            }
         });
 
         render_pass.setPipeline(self.render_pipeline);
