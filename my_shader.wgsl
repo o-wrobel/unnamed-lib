@@ -7,7 +7,7 @@ struct MyUniform {
 @group(0) @binding(0) var<uniform> my_uniform: MyUniform;
 
 struct VertexInput {
-    @location(0) position: vec2f,
+    @location(0) position: vec3f,
     @location(1) color: vec3f
 }
 
@@ -18,22 +18,50 @@ struct VertexOutput {
 
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
-    let speed = my_uniform.speed;
-    let t = my_uniform.time * speed;
     let ratio = 640 / 480.0;
-    let ratio_vec = vec2f(1, ratio);
 
-    let i_hat = vec2f(cos(t), sin(t));
-    let j_hat = vec2f(-sin(t), cos(t));
-    let rotation_matrix = mat2x2<f32>(i_hat, j_hat);
+    var x_angle: f32 = 90 - radians(20.);
+    x_angle = my_uniform.time;
+    var y_angle: f32 = 90 - radians(20.);
+    y_angle = my_uniform.time;
+    var z_angle: f32 = 90 - radians(20.);
+    z_angle = my_uniform.time;
+
+    let x_cos = cos(x_angle);
+    let x_sin = sin(x_angle);
+
+    let y_cos = cos(y_angle);
+    let y_sin = sin(y_angle);
+
+    let z_cos = cos(z_angle);
+    let z_sin = sin(z_angle);
+
+    // Rotation across Z axis
+    let z_rotation = mat3x3f(
+        x_cos, x_sin, 0,
+        -x_sin, x_cos, 0,
+        0, 0, 1,
+    );
+
+    let x_rotation = mat3x3f(
+        1, 0, 0,
+        0, y_cos, y_sin,
+        0, -y_sin, y_cos,
+    );
+
+    let y_rotation = mat3x3f(
+        z_cos, 0, z_sin,
+        0, 1, 0,
+        -z_sin, 0, z_cos
+    );
 
     var pos = in.position;
-    pos = pos * rotation_matrix;
-    pos += my_uniform.center;
-    pos *= ratio_vec;
+    pos *= x_rotation; // X
+    pos *= y_rotation; // Y
+    pos *= z_rotation; // Z
 
     var out: VertexOutput;
-    out.position = vec4f(pos, 0, 1);
+    out.position = vec4f(pos.x, pos.y*ratio, 0, 1);
     out.color = in.color;
     return out;
 }

@@ -5,14 +5,15 @@ const Window = glfw.Window;
 const wgpu = @import("wgpu");
 
 const Vec2f = @Vector(2, f32);
+const Vec3f = @Vector(3, f32);
 const Color = @Vector(3, f32);
 
 const uniform_stride = 256;
 
 const Vertex = struct {
-    const pos_format: wgpu.RenderPipeline.VertexFormat = .float32x2;
+    const pos_format: wgpu.RenderPipeline.VertexFormat = .float32x3;
     const col_format: wgpu.RenderPipeline.VertexFormat = .float32x3;
-    position: Vec2f,
+    position: Vec3f,
     color: Color
 };
 
@@ -62,7 +63,7 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io) !App {
 
     const adapter = try instance.requestAdapterSync(.{});
     defer adapter.deinit();
-    printLimits(try adapter.getLimits());
+    // printLimits(try adapter.getLimits());
 
     const device = try adapter.requestDeviceSync(.{
         .label = "My cool device",
@@ -180,7 +181,7 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io) !App {
         const color_attribute: wgpu.RenderPipeline.VertexAttribute = .{
             .shader_location = 1,
             .format = Vertex.col_format,
-            .offset = @sizeOf(Vec2f) // TODO: Replace this with @typeOf(position)
+            .offset = @sizeOf(@Vector(3, f32))
         };
         const vertex_buffer_layout: wgpu.RenderPipeline.VertexBufferLayout = .{
             .array_stride = @sizeOf(Vertex),
@@ -213,12 +214,16 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io) !App {
     };
 
     const vertex_buffer, const vertex_count: u32 = init: {
+        const h = 0.5;
         const l = 0.3;
+        const grey = 0.2;
         const vertex_data = [_]Vertex{
-            .{ .position = .{-l, -l}, .color = .{1, 0, 0} },
-            .{ .position = .{l, -l}, .color = .{0, 1, 0} },
-            .{ .position = .{l, l}, .color = .{0, 0, 1} },
-            .{ .position = .{-l, l}, .color = .{1, 1, 0} },
+            .{ .position = .{-h, -h, -l}, .color = .{0, 1, 0} },
+            .{ .position = .{h, -h, -l}, .color = .{0, 1, 0} },
+            .{ .position = .{h, h, -l}, .color = .{0, 1, 0} },
+            .{ .position = .{-h, h, -l}, .color = .{0, 1, 0} },
+
+            .{ .position = .{0, 0, h}, .color = @splat(grey) },
 
         };
         const vertex_buffer = try device.createBuffer(.{
@@ -233,7 +238,12 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io) !App {
         const Index = u32;
         const index_data = [_]Index{
             0, 1, 2,
-            0, 2, 3
+            0, 2, 3,
+
+            0, 1, 4,
+            1, 2, 4,
+            2, 3, 4,
+            3, 0, 4
         };
         const index_count: u32 = @intCast((&index_data).len);
         const index_buffer = try device.createBuffer(.{
@@ -287,13 +297,13 @@ pub fn mainLoop(self: *const App) !void {
             .center = .{ -0.5, 0 },
             .speed = 1,
         };
-        const uniform2: MyUniform = .{
-            .time = time,
-            .center = .{ 0.5, 0 },
-            .speed = -1
-        };
+        // const uniform2: MyUniform = .{
+        //     .time = time,
+        //     .center = .{ 0.5, 0 },
+        //     .speed = -1
+        // };
         self.queue.writeBuffer(MyUniform, self.uniform_buffer, 0, &.{ uniform1 });
-        self.queue.writeBuffer(MyUniform, self.uniform_buffer, uniform_stride, &.{ uniform2 });
+        // self.queue.writeBuffer(MyUniform, self.uniform_buffer, uniform_stride, &.{ uniform2 });
 
         const target_view = try getNextSurfaceTextureView(self.surface) orelse continue;
         const encoder = try self.device.createCommandEncoder(.{ .label = "My command encoder" });
@@ -319,17 +329,15 @@ pub fn mainLoop(self: *const App) !void {
         render_pass.setBindGroup(0, self.bind_group, &.{ 0 });
         render_pass.drawIndexed(self.index_count, 1, 0, 0, 0);
 
-        render_pass.setBindGroup(0, self.bind_group, &.{ @intCast(uniform_stride) });
-        render_pass.drawIndexed(self.index_count, 1, 0, 0, 0);
+        // render_pass.setBindGroup(0, self.bind_group, &.{ @intCast(uniform_stride) });
+        // render_pass.drawIndexed(self.index_count, 1, 0, 0, 0);
 
         render_pass.end();
         render_pass.deinit();
 
         const command = try encoder.finish(.{ .label = "Command buffer" });
 
-        // std.log.debug("Submitting command...", .{});
         self.queue.submitCommands(&.{command});
-        // std.log.debug("Command submitted", .{});
 
         try self.surface.present();
 
