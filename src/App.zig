@@ -311,9 +311,10 @@ pub fn mainLoop(self: *const App) !void {
         const t = std.math.radiansToDegrees(time);
         const uniform1: MyUniform = .{
             .time = time,
-            .pitch = t,
+            // .pitch = std.math.radiansToDegrees(3.0 * std.math.pi / 4.0),
+            .pitch = 3.0/4.0 * 180.0,
             .yaw = 0,
-            .roll = 0,
+            .roll = t,
         };
         self.queue.writeBuffer(MyUniform, self.uniform_buffer, 0, &.{ uniform1 });
         // self.queue.writeBuffer(MyUniform, self.uniform_buffer, uniform_stride, &.{ uniform2 });

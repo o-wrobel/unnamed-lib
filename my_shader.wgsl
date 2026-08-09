@@ -20,6 +20,8 @@ struct VertexOutput {
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
     let ratio = 640 / 480.0;
+    let t = my_uniform.time;
+
     let pitch = radians(my_uniform.pitch);
     let yaw = radians(my_uniform.yaw);
     let roll = radians(my_uniform.roll);
@@ -53,9 +55,27 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     ));
 
     var pos = in.position;
-    pos *= pitch_rotation; // pitch (X)
-    pos *= yaw_rotation; // yaw   (Y)
-    pos *= roll_rotation; // roll  (Z)
+
+    let zoom = 0.3;
+    let scaling = transpose(mat4x4f(
+        zoom, 0, 0, 0,
+        0, zoom, 0, 0,
+        0, 0, zoom, 0,
+        0, 0, 0, 1
+    ));
+
+    let translation = transpose(mat4x4f(
+        1, 0, 0, 0.5,
+        0, 1, 0, 0,
+        0, 0, 1, 0,
+        0, 0, 0, 1
+    ));
+
+    // let M = translation * scaling;
+
+    pos = (translation * scaling * vec4f(pos, 1)).xyz;
+    pos = pitch_rotation * yaw_rotation * roll_rotation * pos;
+
 
     var out: VertexOutput;
     out.position = vec4f(pos.x, pos.y*ratio, pos.z * 0.5 + 0.5, 1);
