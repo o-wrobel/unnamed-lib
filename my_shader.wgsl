@@ -76,9 +76,34 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     pos = (translation * scaling * vec4f(pos, 1)).xyz;
     pos = pitch_rotation * yaw_rotation * roll_rotation * pos;
 
+    let focal_point = vec3f(0., 0., -2.0);
+    let focal_length = 2.0;
+    pos = pos - focal_point;
+    // pos.x /= pos.z / focal_length;
+    // pos.y /= pos.z / focal_length;
+
+    let near = 0.001;
+    let far = 100.0;
+
+    let divides = 1. / (focal_length * (far - near));
+    let perspective = transpose(mat4x4f(
+        1, 0, 0, 0,
+        0, ratio, 0, 0,
+        0, 0, far * divides, -far * near * divides,
+        0, 0, 1. / focal_length, 0
+    ));
+
+    let scale = 2.0;
+    let ortho = transpose(mat4x4f(
+        1/scale, 0, 0, 0,
+        0, ratio/scale, 0, 0,
+        0, 0, 1.0/(far - near), -near / (far - near),
+        0, 0, 0, 1
+    ));
 
     var out: VertexOutput;
-    out.position = vec4f(pos.x, pos.y*ratio, pos.z * 0.5 + 0.5, 1);
+    out.position = perspective * vec4f(pos, 1);
+    // out.position.w = pos.z / focal_length;
     out.color = in.color;
     return out;
 }
