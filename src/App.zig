@@ -8,6 +8,14 @@ const Vec2f = @Vector(2, f32);
 const Vec3f = @Vector(3, f32);
 const Color = @Vector(3, f32);
 
+const Mat4x4 = [16]f32;
+const identity_matrix: Mat4x4 = .{
+    1, 0, 0, 0,
+    0, 1, 0, 0,
+    0, 0, 1, 0,
+    0, 0, 0, 1
+};
+
 const uniform_stride = 256;
 
 const Vertex = struct {
@@ -21,7 +29,8 @@ const MyUniform = struct {
     time: f32 = 0,
     pitch: f32 = 0,
     yaw: f32 = 0,
-    roll: f32 = 0
+    roll: f32 = 0,
+    roll_mat: Mat4x4 = identity_matrix,
 };
 
 const window_width = 640;
@@ -309,12 +318,36 @@ pub fn mainLoop(self: *const App) !void {
         if (glfw.windowShouldClose(self.window)) break;
         const time: f32 = @floatCast(glfw.getTime());
         const t = std.math.radiansToDegrees(time);
+        const scale = transpose(.{
+            0.3, 0, 0, 0,
+            0, 0.3, 0, 0,
+            0, 0, 0.3, 0,
+            0, 0, 0, 1
+        });
+        _ = scale; // autofix
+        const translate = transpose(.{
+            1, 0, 0, 0,
+            0, 1, 0, 0,
+            0, 0, 1, 0,
+            0, 0, 0, 1
+        });
+        _ = translate; // autofix
+        const roll_angle = time;
+        const cr = @cos(roll_angle);
+        const sr = @sin(roll_angle);
+        const roll = transpose(.{
+            cr, sr, 0, 0,
+            -sr, cr, 0, 0,
+            0, 0, 1, 0,
+            0, 0, 0, 1
+        });
         const uniform1: MyUniform = .{
             .time = time,
             // .pitch = std.math.radiansToDegrees(3.0 * std.math.pi / 4.0),
             .pitch = 3.0/4.0 * 180.0,
             .yaw = 0,
             .roll = t,
+            .roll_mat = roll
         };
         self.queue.writeBuffer(MyUniform, self.uniform_buffer, 0, &.{ uniform1 });
         // self.queue.writeBuffer(MyUniform, self.uniform_buffer, uniform_stride, &.{ uniform2 });
@@ -423,6 +456,22 @@ fn ceilToNextMultiple(value: usize, step: usize) usize {
     const add: usize = if (value % step == 0) 0 else 1;
     const divide_and_ceil: usize = value / step + add;
     return step * divide_and_ceil;
+}
+
+fn printMatrix(mat: Mat4x4) void {
+    std.debug.print("{}, {}, {}, {}\n", .{mat[0], mat[4], mat[8], mat[12]});
+    std.debug.print("{}, {}, {}, {}\n", .{mat[1], mat[5], mat[9], mat[13]});
+    std.debug.print("{}, {}, {}, {}\n", .{mat[2], mat[6], mat[10], mat[14]});
+    std.debug.print("{}, {}, {}, {}\n", .{mat[3], mat[7], mat[11], mat[15]});
+}
+
+fn transpose(mat: Mat4x4) Mat4x4 {
+    return .{
+        mat[0], mat[4], mat[8], mat[12],
+        mat[1], mat[5], mat[9], mat[13],
+        mat[2], mat[6], mat[10], mat[14],
+        mat[3], mat[7], mat[11], mat[15],
+    };
 }
 
 fn color(c: Color) wgpu.Color {

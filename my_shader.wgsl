@@ -3,6 +3,7 @@ struct MyUniform {
     pitch: f32,
     yaw: f32,
     roll: f32,
+    roll_mat: mat4x4f,
 }
 
 @group(0) @binding(0) var<uniform> my_uniform: MyUniform;
@@ -35,24 +36,22 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     let roll_cos = cos(roll);
     let roll_sin = sin(roll);
 
-    let pitch_rotation = transpose(mat3x3f(
-        1, 0, 0,
-        0, pitch_cos, pitch_sin,
-        0, -pitch_sin, pitch_cos,
+    let pitch_rotation = transpose(mat4x4f(
+        1, 0, 0, 0,
+        0, pitch_cos, pitch_sin, 0,
+        0, -pitch_sin, pitch_cos, 0,
+        0, 0, 0, 1
     ));
 
-    let yaw_rotation = transpose(mat3x3f(
-        yaw_cos, 0, -yaw_sin,
-        0, 1, 0,
-        yaw_sin, 0, yaw_cos
+    let yaw_rotation = transpose(mat4x4f(
+        yaw_cos, 0, -yaw_sin, 0,
+        0, 1, 0, 0,
+        yaw_sin, 0, yaw_cos, 0,
+        0, 0, 0, 1
     ));
 
     // Rotation across Z axis
-    let roll_rotation = transpose(mat3x3f(
-        roll_cos, roll_sin, 0,
-        -roll_sin, roll_cos, 0,
-        0, 0, 1,
-    ));
+    let roll_rotation = my_uniform.roll_mat;
 
     var pos = in.position;
 
@@ -71,16 +70,13 @@ fn vs_main(in: VertexInput) -> VertexOutput {
         0, 0, 0, 1
     ));
 
-    // let M = translation * scaling;
+    let model_transform = pitch_rotation * yaw_rotation * roll_rotation * translation * scaling;
 
-    pos = (translation * scaling * vec4f(pos, 1)).xyz;
-    pos = pitch_rotation * yaw_rotation * roll_rotation * pos;
+    pos = (model_transform * vec4f(pos, 1)).xyz;
 
     let focal_point = vec3f(0., 0., -2.0);
     let focal_length = 2.0;
     pos = pos - focal_point;
-    // pos.x /= pos.z / focal_length;
-    // pos.y /= pos.z / focal_length;
 
     let near = 0.001;
     let far = 100.0;
