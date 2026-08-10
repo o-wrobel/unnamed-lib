@@ -3,7 +3,7 @@ struct MyUniform {
     pitch: f32,
     yaw: f32,
     roll: f32,
-    roll_mat: mat4x4f,
+    model_transform: mat4x4f
 }
 
 @group(0) @binding(0) var<uniform> my_uniform: MyUniform;
@@ -21,37 +21,8 @@ struct VertexOutput {
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
     let ratio = 640 / 480.0;
-    let t = my_uniform.time;
-
-    let pitch = radians(my_uniform.pitch);
-    let yaw = radians(my_uniform.yaw);
-    let roll = radians(my_uniform.roll);
-
-    let pitch_cos = cos(pitch);
-    let pitch_sin = sin(pitch);
-
-    let yaw_cos = cos(yaw);
-    let yaw_sin = sin(yaw);
-
-    let roll_cos = cos(roll);
-    let roll_sin = sin(roll);
-
-    let pitch_rotation = transpose(mat4x4f(
-        1, 0, 0, 0,
-        0, pitch_cos, pitch_sin, 0,
-        0, -pitch_sin, pitch_cos, 0,
-        0, 0, 0, 1
-    ));
-
-    let yaw_rotation = transpose(mat4x4f(
-        yaw_cos, 0, -yaw_sin, 0,
-        0, 1, 0, 0,
-        yaw_sin, 0, yaw_cos, 0,
-        0, 0, 0, 1
-    ));
 
     // Rotation across Z axis
-    let roll_rotation = my_uniform.roll_mat;
 
     var pos = in.position;
 
@@ -70,7 +41,9 @@ fn vs_main(in: VertexInput) -> VertexOutput {
         0, 0, 0, 1
     ));
 
-    let model_transform = pitch_rotation * yaw_rotation * roll_rotation * translation * scaling;
+    // let temp = translation * scaling;
+    let model_t = my_uniform.model_transform;
+    let model_transform = model_t;
 
     pos = (model_transform * vec4f(pos, 1)).xyz;
 

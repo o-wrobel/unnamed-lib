@@ -30,7 +30,7 @@ const MyUniform = struct {
     pitch: f32 = 0,
     yaw: f32 = 0,
     roll: f32 = 0,
-    roll_mat: Mat4x4 = identity_matrix,
+    model_matrix: Mat4x4 = identity_matrix,
 };
 
 const window_width = 640;
@@ -317,21 +317,19 @@ pub fn mainLoop(self: *const App) !void {
         glfw.pollEvents();
         if (glfw.windowShouldClose(self.window)) break;
         const time: f32 = @floatCast(glfw.getTime());
-        const t = std.math.radiansToDegrees(time);
         const scale = transpose(.{
             0.3, 0, 0, 0,
             0, 0.3, 0, 0,
             0, 0, 0.3, 0,
             0, 0, 0, 1
         });
-        _ = scale; // autofix
         const translate = transpose(.{
-            1, 0, 0, 0,
+            1, 0, 0, 0.5,
             0, 1, 0, 0,
             0, 0, 1, 0,
             0, 0, 0, 1
         });
-        _ = translate; // autofix
+
         const roll_angle = time;
         const cr = @cos(roll_angle);
         const sr = @sin(roll_angle);
@@ -341,13 +339,38 @@ pub fn mainLoop(self: *const App) !void {
             0, 0, 1, 0,
             0, 0, 0, 1
         });
+
+        const yaw_angle: f32 = 0;
+        const cy = @cos(yaw_angle);
+        const sy = @sin(yaw_angle);
+        const yaw = transpose(.{
+            cy, 0, -sy, 0,
+            0, 1, 0, 0,
+            sy, 0, cy, 0,
+            0, 0, 0, 1
+        });
+
+        const pitch_angle: f32 = std.math.degreesToRadians(135);
+        const cp = @cos(pitch_angle);
+        const sp = @sin(pitch_angle);
+        const pitch = transpose(.{
+            1, 0, 0, 0,
+            0, cp, sp, 0,
+            0, -sp, cp, 0,
+            0, 0, 0, 1
+        });
+
+        const model_transform: Mat4x4 = batchMatrixMultiply(&.{
+            scale,
+            translate,
+            roll,
+            yaw,
+            pitch,
+        });
+
         const uniform1: MyUniform = .{
             .time = time,
-            // .pitch = std.math.radiansToDegrees(3.0 * std.math.pi / 4.0),
-            .pitch = 3.0/4.0 * 180.0,
-            .yaw = 0,
-            .roll = t,
-            .roll_mat = roll
+            .model_matrix = model_transform
         };
         self.queue.writeBuffer(MyUniform, self.uniform_buffer, 0, &.{ uniform1 });
         // self.queue.writeBuffer(MyUniform, self.uniform_buffer, uniform_stride, &.{ uniform2 });
@@ -471,6 +494,31 @@ fn transpose(mat: Mat4x4) Mat4x4 {
         mat[1], mat[5], mat[9], mat[13],
         mat[2], mat[6], mat[10], mat[14],
         mat[3], mat[7], mat[11], mat[15],
+    };
+}
+
+/// -> m2 * m1
+fn multiplyMatrices(m1: Mat4x4, m2: Mat4x4) Mat4x4 {
+    var result: Mat4x4 = undefined;
+    var i: usize = 0;
+    while (i < 4) : (i += 1) {
+        var j: usize = 0;
+        while (j < 4) : (j += 1) {
+            result[i + 4 * j] =
+                m2[i + 0] * m1[0 + 4 * j] +
+                m2[i + 4] * m1[1 + 4 * j] +
+                m2[i + 8] * m1[2 + 4 * j] +
+                m2[i + 12] * m1[3 + 4 * j];
+        }
+    }
+    return result;
+}
+
+fn batchMatrixMultiply(mats: []const Mat4x4) Mat4x4 {
+    return blk: {
+        var temp: Mat4x4 = mats[0];
+        for (mats[1..]) |m| temp = multiplyMatrices(temp, m);
+        break :blk temp;
     };
 }
 
