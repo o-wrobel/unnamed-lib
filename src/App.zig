@@ -382,7 +382,8 @@ pub fn mainLoop(self: *const App) !void {
         });
 
         const ratio: f32 = 640.0/480.0;
-        const focal_length: f32 = 2;
+        const field_of_view: f32 = std.math.degreesToRadians(60);
+        const focal_length: f32 = 1.0/@tan(field_of_view/2.0);
         const near: f32 = 0.01; const far: f32 = 100;
         const projection = init: {
             const divider = 1.0 / (focal_length * (far - near));
