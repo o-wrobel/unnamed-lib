@@ -44,7 +44,7 @@ pub const Model = struct {
 
 const window_width = 640;
 const window_height = 480;
-const background_color: Color = .{0, 0, 0};
+const background_color: Color = .{0.1, 0.1, 0.1};
 
 pub const App = @This();
 
