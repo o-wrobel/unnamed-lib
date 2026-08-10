@@ -1,9 +1,6 @@
 struct MyUniform {
+    model_transform: mat4x4f,
     time: f32,
-    pitch: f32,
-    yaw: f32,
-    roll: f32,
-    model_transform: mat4x4f
 }
 
 @group(0) @binding(0) var<uniform> my_uniform: MyUniform;
@@ -22,28 +19,9 @@ struct VertexOutput {
 fn vs_main(in: VertexInput) -> VertexOutput {
     let ratio = 640 / 480.0;
 
-    // Rotation across Z axis
-
     var pos = in.position;
 
-    let zoom = 0.3;
-    let scaling = transpose(mat4x4f(
-        zoom, 0, 0, 0,
-        0, zoom, 0, 0,
-        0, 0, zoom, 0,
-        0, 0, 0, 1
-    ));
-
-    let translation = transpose(mat4x4f(
-        1, 0, 0, 0.5,
-        0, 1, 0, 0,
-        0, 0, 1, 0,
-        0, 0, 0, 1
-    ));
-
-    // let temp = translation * scaling;
-    let model_t = my_uniform.model_transform;
-    let model_transform = model_t;
+    let model_transform = my_uniform.model_transform;
 
     pos = (model_transform * vec4f(pos, 1)).xyz;
 

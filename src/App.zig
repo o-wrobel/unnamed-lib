@@ -26,11 +26,9 @@ const Vertex = struct {
 };
 
 const MyUniform = struct {
-    time: f32 = 0,
-    pitch: f32 = 0,
-    yaw: f32 = 0,
-    roll: f32 = 0,
     model_matrix: Mat4x4 = identity_matrix,
+    time: f32 = 0,
+    _pad: [3]f32 = @splat(0),
 };
 
 const window_width = 640;
@@ -317,56 +315,61 @@ pub fn mainLoop(self: *const App) !void {
         glfw.pollEvents();
         if (glfw.windowShouldClose(self.window)) break;
         const time: f32 = @floatCast(glfw.getTime());
-        const scale = transpose(.{
-            0.3, 0, 0, 0,
-            0, 0.3, 0, 0,
-            0, 0, 0.3, 0,
-            0, 0, 0, 1
-        });
-        const translate = transpose(.{
-            1, 0, 0, 0.5,
-            0, 1, 0, 0,
-            0, 0, 1, 0,
-            0, 0, 0, 1
-        });
 
-        const roll_angle = time;
-        const cr = @cos(roll_angle);
-        const sr = @sin(roll_angle);
-        const roll = transpose(.{
-            cr, sr, 0, 0,
-            -sr, cr, 0, 0,
-            0, 0, 1, 0,
-            0, 0, 0, 1
-        });
+        const zoom = 0.8;
+        const translate_vec: Vec3f = .{0.5, 0, 0};
+        const model_transform = blk: {
+            const scale = transpose(.{
+                zoom, 0, 0, 0,
+                0, zoom, 0, 0,
+                0, 0, zoom, 0,
+                0, 0, 0, 1
+            });
+            const translate = transpose(.{
+                1, 0, 0, translate_vec[0],
+                0, 1, 0, translate_vec[1],
+                0, 0, 1, translate_vec[2],
+                0, 0, 0, 1
+            });
 
-        const yaw_angle: f32 = 0;
-        const cy = @cos(yaw_angle);
-        const sy = @sin(yaw_angle);
-        const yaw = transpose(.{
-            cy, 0, -sy, 0,
-            0, 1, 0, 0,
-            sy, 0, cy, 0,
-            0, 0, 0, 1
-        });
+            const roll_angle = time;
+            const cr = @cos(roll_angle);
+            const sr = @sin(roll_angle);
+            const roll = transpose(.{
+                cr, sr, 0, 0,
+                -sr, cr, 0, 0,
+                0, 0, 1, 0,
+                0, 0, 0, 1
+            });
 
-        const pitch_angle: f32 = std.math.degreesToRadians(135);
-        const cp = @cos(pitch_angle);
-        const sp = @sin(pitch_angle);
-        const pitch = transpose(.{
-            1, 0, 0, 0,
-            0, cp, sp, 0,
-            0, -sp, cp, 0,
-            0, 0, 0, 1
-        });
+            const yaw_angle: f32 = 0;
+            const cy = @cos(yaw_angle);
+            const sy = @sin(yaw_angle);
+            const yaw = transpose(.{
+                cy, 0, -sy, 0,
+                0, 1, 0, 0,
+                sy, 0, cy, 0,
+                0, 0, 0, 1
+            });
 
-        const model_transform: Mat4x4 = batchMatrixMultiply(&.{
-            scale,
-            translate,
-            roll,
-            yaw,
-            pitch,
-        });
+            const pitch_angle: f32 = std.math.degreesToRadians(135);
+            const cp = @cos(pitch_angle);
+            const sp = @sin(pitch_angle);
+            const pitch = transpose(.{
+                1, 0, 0, 0,
+                0, cp, sp, 0,
+                0, -sp, cp, 0,
+                0, 0, 0, 1
+            });
+
+            break :blk batchMatrixMultiply(&.{
+                scale,
+                translate,
+                roll,
+                yaw,
+                pitch,
+            });
+        };
 
         const uniform1: MyUniform = .{
             .time = time,
