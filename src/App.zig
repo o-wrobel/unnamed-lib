@@ -18,6 +18,8 @@ const identity_matrix: Mat4x4 = .{
 
 const uniform_stride = 256;
 
+const Index = u32;
+
 const Vertex = struct {
     const pos_format: wgpu.RenderPipeline.VertexFormat = .float32x3;
     const col_format: wgpu.RenderPipeline.VertexFormat = .float32x3;
@@ -31,6 +33,12 @@ const MyUniform = struct {
     projection_transform: Mat4x4 = identity_matrix,
     time: f32 = 0,
     _pad: [3]f32 = @splat(0),
+};
+
+pub const Model = struct {
+
+    vertices: []const Vertex,
+    indices: []const Index
 };
 
 const window_width = 640;
@@ -59,7 +67,7 @@ depth_texture_view: wgpu.TextureView,
 
 uniform_buffer: wgpu.Buffer,
 
-pub fn init(allocator: std.mem.Allocator, io: std.Io) !App {
+pub fn init(model: Model, allocator: std.mem.Allocator, io: std.Io) !App {
     log.info("Initializing", .{});
 
     // GLFW
@@ -224,43 +232,21 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io) !App {
     };
 
     const vertex_buffer, const vertex_count: u32 = init: {
-        const h = 0.5;
-        const l = 0.3;
-        const grey = 0.8;
-        const vertex_data = [_]Vertex{
-            .{ .position = .{-h, -h, -l}, .color = .{1, 0, 0} },
-            .{ .position = .{h, -h, -l}, .color = .{0, 1, 0} },
-            .{ .position = .{h, h, -l}, .color = .{0, 0, 1} },
-            .{ .position = .{-h, h, -l}, .color = .{1, 0, 1} },
-
-            .{ .position = .{0, 0, h}, .color = @splat(grey) },
-
-        };
         const vertex_buffer = try device.createBuffer(.{
-            .size = @sizeOf(@TypeOf(vertex_data)),
+            .size = model.vertices.len * @sizeOf(Vertex),
             .usage = .{ .copy_dst = true, .vertex = true }
         });
-        queue.writeBuffer(Vertex, vertex_buffer, 0, &vertex_data);
-        break :init .{ vertex_buffer, @intCast((&vertex_data).len) };
+        queue.writeBuffer(Vertex, vertex_buffer, 0, model.vertices);
+        break :init .{ vertex_buffer, @intCast(model.vertices.len )};
     };
 
     const index_buffer, const index_count: u32 = init: {
-        const Index = u32;
-        const index_data = [_]Index{
-            0, 1, 2,
-            0, 2, 3,
-
-            0, 1, 4,
-            1, 2, 4,
-            2, 3, 4,
-            3, 0, 4
-        };
-        const index_count: u32 = @intCast((&index_data).len);
+        const index_count: u32 = @intCast(model.indices.len);
         const index_buffer = try device.createBuffer(.{
             .size = index_count * @sizeOf(Index),
             .usage = .{ .copy_dst = true, .index = true }
         });
-        queue.writeBuffer(Index, index_buffer, 0, &index_data);
+        queue.writeBuffer(Index, index_buffer, 0, model.indices);
         break :init .{ index_buffer, index_count };
     };
 
