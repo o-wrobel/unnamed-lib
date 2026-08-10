@@ -22,8 +22,10 @@ const Index = u32;
 
 const Vertex = struct {
     const pos_format: wgpu.RenderPipeline.VertexFormat = .float32x3;
+    const norm_format: wgpu.RenderPipeline.VertexFormat = .float32x3;
     const col_format: wgpu.RenderPipeline.VertexFormat = .float32x3;
     position: Vec3f,
+    normal: Vec3f,
     color: Color
 };
 
@@ -36,7 +38,6 @@ const MyUniform = struct {
 };
 
 pub const Model = struct {
-
     vertices: []const Vertex,
     indices: []const Index
 };
@@ -190,14 +191,19 @@ pub fn init(model: Model, allocator: std.mem.Allocator, io: std.Io) !App {
             .format = Vertex.pos_format,
             .offset = 0
         };
-        const color_attribute: wgpu.RenderPipeline.VertexAttribute = .{
+        const normal_attribute: wgpu.RenderPipeline.VertexAttribute = .{
             .shader_location = 1,
+            .format = Vertex.norm_format,
+            .offset = 1 * @sizeOf(Vec3f),
+        };
+        const color_attribute: wgpu.RenderPipeline.VertexAttribute = .{
+            .shader_location = 2,
             .format = Vertex.col_format,
-            .offset = @sizeOf(@Vector(3, f32))
+            .offset = 2 * @sizeOf(@Vector(3, f32))
         };
         const vertex_buffer_layout: wgpu.RenderPipeline.VertexBufferLayout = .{
             .array_stride = @sizeOf(Vertex),
-            .attributes = &.{ position_attribute, color_attribute },
+            .attributes = &.{ position_attribute, normal_attribute, color_attribute },
         };
 
         const layout = try device.createPipelineLayout("My pipeline layout", &.{ bind_group_layout }, 0);
