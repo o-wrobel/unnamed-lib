@@ -26,7 +26,9 @@ const Vertex = struct {
 };
 
 const MyUniform = struct {
-    model_matrix: Mat4x4 = identity_matrix,
+    model_tranform: Mat4x4 = identity_matrix,
+    view_transform: Mat4x4 = identity_matrix,
+    projection_transform: Mat4x4 = identity_matrix,
     time: f32 = 0,
     _pad: [3]f32 = @splat(0),
 };
@@ -316,9 +318,9 @@ pub fn mainLoop(self: *const App) !void {
         if (glfw.windowShouldClose(self.window)) break;
         const time: f32 = @floatCast(glfw.getTime());
 
-        const zoom = 0.8;
+        const zoom = 0.3;
         const translate_vec: Vec3f = .{0.5, 0, 0};
-        const model_transform = blk: {
+        const model_transform = init: {
             const scale = transpose(.{
                 zoom, 0, 0, 0,
                 0, zoom, 0, 0,
@@ -362,7 +364,7 @@ pub fn mainLoop(self: *const App) !void {
                 0, 0, 0, 1
             });
 
-            break :blk batchMatrixMultiply(&.{
+            break :init batchMatrixMultiply(&.{
                 scale,
                 translate,
                 roll,
@@ -371,9 +373,32 @@ pub fn mainLoop(self: *const App) !void {
             });
         };
 
+        const focal_point: Vec3f = .{0, 0, -2};
+        const view_tranform: Mat4x4 = transpose(.{
+            1, 0, 0, -focal_point[0],
+            0, 1, 0, -focal_point[1],
+            0, 0, 1, -focal_point[2],
+            0, 0, 0, 1
+        });
+
+        const ratio: f32 = 640.0/480.0;
+        const focal_length: f32 = 2;
+        const near: f32 = 0.01; const far: f32 = 100;
+        const projection = init: {
+            const divider = 1.0 / (focal_length * (far - near));
+            break :init transpose(.{
+                1, 0, 0, 0,
+                0, ratio, 0, 0,
+                0, 0, far*divider, -far * near * divider,
+                0, 0, 1.0 / focal_length, 0
+            });
+        };
+
         const uniform1: MyUniform = .{
             .time = time,
-            .model_matrix = model_transform
+            .model_tranform = model_transform,
+            .view_transform = view_tranform,
+            .projection_transform = projection
         };
         self.queue.writeBuffer(MyUniform, self.uniform_buffer, 0, &.{ uniform1 });
         // self.queue.writeBuffer(MyUniform, self.uniform_buffer, uniform_stride, &.{ uniform2 });

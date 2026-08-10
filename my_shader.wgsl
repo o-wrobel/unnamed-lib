@@ -1,5 +1,7 @@
 struct MyUniform {
     model_transform: mat4x4f,
+    view_tranform: mat4x4f,
+    projection_transform: mat4x4f,
     time: f32,
 }
 
@@ -21,36 +23,12 @@ fn vs_main(in: VertexInput) -> VertexOutput {
 
     var pos = in.position;
 
-    let model_transform = my_uniform.model_transform;
-
-    pos = (model_transform * vec4f(pos, 1)).xyz;
-
-    let focal_point = vec3f(0., 0., -2.0);
-    let focal_length = 2.0;
-    pos = pos - focal_point;
-
-    let near = 0.001;
-    let far = 100.0;
-
-    let divides = 1. / (focal_length * (far - near));
-    let perspective = transpose(mat4x4f(
-        1, 0, 0, 0,
-        0, ratio, 0, 0,
-        0, 0, far * divides, -far * near * divides,
-        0, 0, 1. / focal_length, 0
-    ));
-
-    let scale = 2.0;
-    let ortho = transpose(mat4x4f(
-        1/scale, 0, 0, 0,
-        0, ratio/scale, 0, 0,
-        0, 0, 1.0/(far - near), -near / (far - near),
-        0, 0, 0, 1
-    ));
+    let model = my_uniform.model_transform;
+    let view = my_uniform.view_tranform;
+    let projection = my_uniform.projection_transform;
 
     var out: VertexOutput;
-    out.position = perspective * vec4f(pos, 1);
-    // out.position.w = pos.z / focal_length;
+    out.position = (projection * view * model * vec4f(pos, 1));
     out.color = in.color;
     return out;
 }
