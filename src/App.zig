@@ -310,13 +310,14 @@ pub fn mainLoop(self: *const App) !void {
         if (glfw.windowShouldClose(self.window)) break;
         const time: f32 = @floatCast(glfw.getTime());
 
-        const zoom = 0.3;
+        const scale_coef = 0.3;
         const translate_vec: Vec3f = .{0.5, 0, 0};
+        const model_roll = time;
         const model_transform = init: {
             const scale = transpose(.{
-                zoom, 0, 0, 0,
-                0, zoom, 0, 0,
-                0, 0, zoom, 0,
+                scale_coef, 0, 0, 0,
+                0, scale_coef, 0, 0,
+                0, 0, scale_coef, 0,
                 0, 0, 0, 1
             });
             const translate = transpose(.{
@@ -326,52 +327,31 @@ pub fn mainLoop(self: *const App) !void {
                 0, 0, 0, 1
             });
 
-            const roll_angle = time;
-            const cr = @cos(roll_angle);
-            const sr = @sin(roll_angle);
-            const roll = transpose(.{
-                cr, sr, 0, 0,
-                -sr, cr, 0, 0,
-                0, 0, 1, 0,
-                0, 0, 0, 1
-            });
-
-            const yaw_angle: f32 = 0;
-            const cy = @cos(yaw_angle);
-            const sy = @sin(yaw_angle);
-            const yaw = transpose(.{
-                cy, 0, -sy, 0,
-                0, 1, 0, 0,
-                sy, 0, cy, 0,
-                0, 0, 0, 1
-            });
-
-            const pitch_angle: f32 = std.math.degreesToRadians(135);
-            const cp = @cos(pitch_angle);
-            const sp = @sin(pitch_angle);
-            const pitch = transpose(.{
-                1, 0, 0, 0,
-                0, cp, sp, 0,
-                0, -sp, cp, 0,
-                0, 0, 0, 1
-            });
-
+            const rotation = rotationMatrix(0, 0, model_roll);
             break :init batchMatrixMultiply(&.{
                 scale,
                 translate,
-                roll,
-                yaw,
-                pitch,
+                rotation
             });
         };
 
         const focal_point: Vec3f = .{0, 0, -2};
-        const view_tranform: Mat4x4 = transpose(.{
-            1, 0, 0, -focal_point[0],
-            0, 1, 0, -focal_point[1],
-            0, 0, 1, -focal_point[2],
-            0, 0, 0, 1
-        });
+        const view_pitch = std.math.degreesToRadians(135);
+        const view_transform = init: {
+            const translation: Mat4x4 = transpose(.{
+                1, 0, 0, -focal_point[0],
+                0, 1, 0, -focal_point[1],
+                0, 0, 1, -focal_point[2],
+                0, 0, 0, 1
+            });
+
+            const rotation: Mat4x4 = rotationMatrix(view_pitch, 0, 0);
+            break :init batchMatrixMultiply(&.{
+                rotation,
+                translation,
+            });
+
+        };
 
         const ratio: f32 = 640.0/480.0;
         const field_of_view: f32 = std.math.degreesToRadians(60);
@@ -390,7 +370,7 @@ pub fn mainLoop(self: *const App) !void {
         const uniform1: MyUniform = .{
             .time = time,
             .model_tranform = model_transform,
-            .view_transform = view_tranform,
+            .view_transform = view_transform,
             .projection_transform = projection
         };
         self.queue.writeBuffer(MyUniform, self.uniform_buffer, 0, &.{ uniform1 });
@@ -541,6 +521,40 @@ fn batchMatrixMultiply(mats: []const Mat4x4) Mat4x4 {
         for (mats[1..]) |m| temp = multiplyMatrices(temp, m);
         break :blk temp;
     };
+}
+
+fn rotationMatrix(pitch: f32, yaw: f32, roll: f32) Mat4x4 {
+    const cr = @cos(roll);
+    const sr = @sin(roll);
+    const roll_tr = transpose(.{
+        cr, sr, 0, 0,
+        -sr, cr, 0, 0,
+        0, 0, 1, 0,
+        0, 0, 0, 1
+    });
+
+    const cy = @cos(yaw);
+    const sy = @sin(yaw);
+    const yaw_tr = transpose(.{
+        cy, 0, -sy, 0,
+        0, 1, 0, 0,
+        sy, 0, cy, 0,
+        0, 0, 0, 1
+    });
+
+    const cp = @cos(pitch);
+    const sp = @sin(pitch);
+    const pitch_tr = transpose(.{
+        1, 0, 0, 0,
+        0, cp, sp, 0,
+        0, -sp, cp, 0,
+        0, 0, 0, 1
+    });
+    return batchMatrixMultiply(&.{
+        roll_tr,
+        yaw_tr,
+        pitch_tr
+    });
 }
 
 fn color(c: Color) wgpu.Color {
