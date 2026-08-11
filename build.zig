@@ -11,6 +11,8 @@ pub fn build(b: *std.Build) void {
     const glfw = glfw_dep.module("root");
     const glfw_lib = glfw_dep.artifact("glfw");
 
+    const obj_dep = b.dependency("obj", .{});
+    const obj = obj_dep.module("obj");
 
     const app_mod = b.createModule(.{
         .root_source_file = b.path("src/App.zig"),
@@ -20,6 +22,7 @@ pub fn build(b: *std.Build) void {
         .imports = &.{
             .{ .module = wgpu, .name = "wgpu" },
             .{ .module = glfw, .name = "glfw" },
+            .{ .module = obj, .name = "obj" },
         }
     });
     app_mod.linkLibrary(glfw_lib);

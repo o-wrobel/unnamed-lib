@@ -3,13 +3,14 @@ const std = @import("std");
 const glfw = @import("glfw");
 const Window = glfw.Window;
 const wgpu = @import("wgpu");
+const obj = @import("obj");
 
-const Vec2f = @Vector(2, f32);
-const Vec3f = @Vector(3, f32);
-const Color = @Vector(3, f32);
+pub const Vec2f = @Vector(2, f32);
+pub const Vec3f = @Vector(3, f32);
+pub const Color = @Vector(3, f32);
 
-const Mat4x4 = [16]f32;
-const identity_matrix: Mat4x4 = .{
+pub const Mat4x4 = [16]f32;
+pub const identity_matrix: Mat4x4 = .{
     1, 0, 0, 0,
     0, 1, 0, 0,
     0, 0, 1, 0,
@@ -18,9 +19,9 @@ const identity_matrix: Mat4x4 = .{
 
 const uniform_stride = 256;
 
-const Index = u32;
+pub const Index = u32;
 
-const Vertex = struct {
+pub const Vertex = struct {
     const pos_format: wgpu.RenderPipeline.VertexFormat = .float32x3;
     const norm_format: wgpu.RenderPipeline.VertexFormat = .float32x3;
     const col_format: wgpu.RenderPipeline.VertexFormat = .float32x3;
@@ -68,8 +69,22 @@ depth_texture_view: wgpu.TextureView,
 
 uniform_buffer: wgpu.Buffer,
 
-pub fn init(model: Model, allocator: std.mem.Allocator, io: std.Io) !App {
+pub fn init(model_filename: []const u8, allocator: std.mem.Allocator, io: std.Io) !App {
     log.info("Initializing", .{});
+
+    log.info("Loading model file \"{s}\"", .{model_filename});
+    const model_file = try std.Io.Dir.cwd().openFile(io, model_filename, .{});
+    const file_len = model_file.length(io) catch unreachable;
+    var file_reader = model_file.reader(io, &.{});
+    const text = try file_reader.interface.allocRemaining(allocator, .limited64(file_len+1));
+    const text_sentinel = try allocator.dupeSentinel(u8, text, 0);
+    defer allocator.free(text);
+    defer allocator.free(text_sentinel);
+
+    const model: Model = try std.zon.parse.fromSliceAlloc(Model, allocator, text_sentinel, null, .{});
+
+    defer allocator.free(model.vertices);
+    defer allocator.free(model.indices);
 
     // GLFW
     try glfw.init();
