@@ -3,7 +3,7 @@ const std = @import("std");
 const glfw = @import("glfw");
 const Window = glfw.Window;
 const wgpu = @import("wgpu");
-const obj = @import("tiny_obj");
+const obj = @import("tinyobj");
 const Scene = obj.Scene;
 
 pub const Vec2f = @Vector(2, f32);
@@ -415,7 +415,7 @@ pub fn loadOBJ(filename: []const u8, allocator: std.mem.Allocator, io: std.Io) !
     const text = try file_reader.interface.allocRemaining(allocator, .limited64(file_len+1));
     defer allocator.free(text);
 
-    const scene = try obj.loadFromMemory(text, null);
+    const scene = try obj.loadFromMemory(text, .{});
     const shape = (scene.shapes orelse unreachable)[0];
     const vertices = try allocator.alloc(Vertex, @intCast(shape.mesh.num_indices));
 
