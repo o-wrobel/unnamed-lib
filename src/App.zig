@@ -3,7 +3,8 @@ const std = @import("std");
 const glfw = @import("glfw");
 const Window = glfw.Window;
 const wgpu = @import("wgpu");
-const obj = @import("obj");
+const obj = @import("tiny_obj");
+const Scene = obj.Scene;
 
 pub const Vec2f = @Vector(2, f32);
 pub const Vec3f = @Vector(3, f32);
@@ -38,11 +39,6 @@ const MyUniform = struct {
     _pad: [3]f32 = @splat(0),
 };
 
-pub const Model = struct {
-    vertices: []const Vertex,
-    indices: []const Index
-};
-
 const window_width = 640;
 const window_height = 480;
 const background_color: Color = .{0.1, 0.1, 0.1};
@@ -61,7 +57,6 @@ render_pipeline: wgpu.RenderPipeline,
 vertex_buffer: wgpu.Buffer,
 vertex_count: u32,
 
-index_buffer: wgpu.Buffer,
 index_count: u32,
 
 depth_texture: wgpu.Texture,
@@ -73,18 +68,8 @@ pub fn init(model_filename: []const u8, allocator: std.mem.Allocator, io: std.Io
     log.info("Initializing", .{});
 
     log.info("Loading model file \"{s}\"", .{model_filename});
-    const model_file = try std.Io.Dir.cwd().openFile(io, model_filename, .{});
-    const file_len = model_file.length(io) catch unreachable;
-    var file_reader = model_file.reader(io, &.{});
-    const text = try file_reader.interface.allocRemaining(allocator, .limited64(file_len+1));
-    const text_sentinel = try allocator.dupeSentinel(u8, text, 0);
-    defer allocator.free(text);
-    defer allocator.free(text_sentinel);
-
-    const model: Model = try std.zon.parse.fromSliceAlloc(Model, allocator, text_sentinel, null, .{});
-
-    defer allocator.free(model.vertices);
-    defer allocator.free(model.indices);
+    const vertices = try loadOBJ(model_filename, allocator, io);
+    defer allocator.free(vertices);
 
     // GLFW
     try glfw.init();
@@ -254,21 +239,11 @@ pub fn init(model_filename: []const u8, allocator: std.mem.Allocator, io: std.Io
 
     const vertex_buffer, const vertex_count: u32 = init: {
         const vertex_buffer = try device.createBuffer(.{
-            .size = model.vertices.len * @sizeOf(Vertex),
+            .size = vertices.len * @sizeOf(Vertex),
             .usage = .{ .copy_dst = true, .vertex = true }
         });
-        queue.writeBuffer(Vertex, vertex_buffer, 0, model.vertices);
-        break :init .{ vertex_buffer, @intCast(model.vertices.len )};
-    };
-
-    const index_buffer, const index_count: u32 = init: {
-        const index_count: u32 = @intCast(model.indices.len);
-        const index_buffer = try device.createBuffer(.{
-            .size = index_count * @sizeOf(Index),
-            .usage = .{ .copy_dst = true, .index = true }
-        });
-        queue.writeBuffer(Index, index_buffer, 0, model.indices);
-        break :init .{ index_buffer, index_count };
+        queue.writeBuffer(Vertex, vertex_buffer, 0, vertices);
+        break :init .{ vertex_buffer, @intCast(vertices.len )};
     };
 
     const depth_texture = try device.createTexture(.{
@@ -294,8 +269,7 @@ pub fn init(model_filename: []const u8, allocator: std.mem.Allocator, io: std.Io
         .vertex_buffer = vertex_buffer,
         .vertex_count = vertex_count,
 
-        .index_buffer = index_buffer,
-        .index_count = index_count,
+        .index_count = @intCast(vertices.len),
 
         .depth_texture = depth_texture,
         .depth_texture_view = depth_texture_view,
@@ -314,7 +288,6 @@ pub fn deinit(self: App) void {
     self.render_pipeline.deinit();
 
     self.vertex_buffer.deinit();
-    self.index_buffer.deinit();
     self.uniform_buffer.deinit();
 }
 
@@ -326,7 +299,7 @@ pub fn mainLoop(self: *const App) !void {
         const time: f32 = @floatCast(glfw.getTime());
 
         const scale_coef = 0.3;
-        const translate_vec: Vec3f = .{0.5, 0, 0};
+        const translate_vec: Vec3f = .{0, 0, 0};
         const model_roll = time;
         const model_transform = init: {
             const scale = transpose(.{
@@ -350,8 +323,8 @@ pub fn mainLoop(self: *const App) !void {
             });
         };
 
-        const focal_point: Vec3f = .{0, 0, -2};
-        const view_pitch = std.math.degreesToRadians(135);
+        const focal_point: Vec3f = .{0, 0, -1};
+        const view_pitch = std.math.degreesToRadians(115);
         const view_transform = init: {
             const translation: Mat4x4 = transpose(.{
                 1, 0, 0, -focal_point[0],
@@ -417,13 +390,9 @@ pub fn mainLoop(self: *const App) !void {
         render_pass.setPipeline(self.render_pipeline);
 
         render_pass.setVertexBuffer(0, self.vertex_buffer, 0, self.vertex_buffer.size);
-        render_pass.setIndexBuffer(self.index_buffer, .uint32, 0, self.index_buffer.size);
 
         render_pass.setBindGroup(0, self.bind_group, &.{ 0 });
-        render_pass.drawIndexed(self.index_count, 1, 0, 0, 0);
-
-        // render_pass.setBindGroup(0, self.bind_group, &.{ @intCast(uniform_stride) });
-        // render_pass.drawIndexed(self.index_count, 1, 0, 0, 0);
+        render_pass.draw(self.vertex_count, 1, 0, 0);
 
         render_pass.end();
         render_pass.deinit();
@@ -437,6 +406,43 @@ pub fn mainLoop(self: *const App) !void {
         target_view.deinit();
         _ = self.device.poll(false);
     }
+}
+
+pub fn loadOBJ(filename: []const u8, allocator: std.mem.Allocator, io: std.Io) ![]Vertex {
+    const model_file = try std.Io.Dir.cwd().openFile(io, filename, .{});
+    const file_len = model_file.length(io) catch unreachable;
+    var file_reader = model_file.reader(io, &.{});
+    const text = try file_reader.interface.allocRemaining(allocator, .limited64(file_len+1));
+    defer allocator.free(text);
+
+    const scene = try obj.loadFromMemory(text, null);
+    const shape = (scene.shapes orelse unreachable)[0];
+    const vertices = try allocator.alloc(Vertex, @intCast(shape.mesh.num_indices));
+
+    for (0..shape.mesh.num_indices) |i| {
+        const index = shape.mesh.indices[i];
+        const vi: usize = @intCast(index.vertex_index);
+        const ni: usize = @intCast(index.normal_index);
+        vertices[i] = Vertex{
+            .position = .{
+                scene.attributes.vertices.ptr[3 * vi + 0],
+                -scene.attributes.vertices.ptr[3 * vi + 2], // Assuming Y represents up
+                scene.attributes.vertices.ptr[3 * vi + 1],
+            },
+            .normal = .{
+                scene.attributes.normals.ptr[3 * ni + 0],
+                -scene.attributes.normals.ptr[3 * ni + 2], // Assuming Y represents up
+                scene.attributes.normals.ptr[3 * ni + 1],
+            },
+            .color = .{
+                scene.attributes.colors.ptr[3 * vi + 0],
+                scene.attributes.colors.ptr[3 * vi + 1],
+                scene.attributes.colors.ptr[3 * vi + 2],
+            },
+        };
+    }
+
+    return vertices;
 }
 
 fn getNextSurfaceTextureView(surface: wgpu.Surface) !?wgpu.TextureView {

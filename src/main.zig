@@ -8,7 +8,7 @@ pub fn main(init: std.process.Init) !void {
     const io = init.io;
     const gpa = init.gpa;
 
-    const app = try App.init("model.zon", gpa, io);
+    const app = try App.init("mammoth.obj", gpa, io);
     defer app.deinit();
 
     try app.mainLoop();

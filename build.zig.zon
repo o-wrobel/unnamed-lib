@@ -13,14 +13,14 @@
             .hash = "zglfw-0.10.0-dev-zgVDNNu5IQAk-UK7gIg0LWMmMzxj4sK9xCSTisLhjgI1",
         },
         .obj = .{
-            .url = "git+https://github.com/chip2n/zig-obj.git#6070356009e761a4aef82256f1f431037ae97426",
-            .hash = "obj-3.0.2-v8OfivnLAAAgz1LaweX7sbe5ffod4VglAnYFCyjcPr1m",
-        },
+            .path = "tiny-obj",
+        }
     },
     .paths = .{
         "build.zig",
         "build.zig.zon",
         "src",
+        "tiny-obj"
         //"LICENSE",
         //"README.md",
     },
