@@ -291,6 +291,63 @@ pub fn deinit(self: App) void {
     self.uniform_buffer.deinit();
 }
 
+/// In radians
+const Rotation = struct {
+    pitch: f32 = 0,
+    yaw: f32 = 0,
+    roll: f32 = 0
+};
+
+fn getModelTransform(scale: f32, translation: Vec3f, rotation: Rotation) Mat4x4 {
+            const scale_transform = transpose(.{
+                scale, 0, 0, 0,
+                0, scale, 0, 0,
+                0, 0, scale, 0,
+                0, 0, 0, 1
+            });
+            const translation_transform = transpose(.{
+                1, 0, 0, translation[0],
+                0, 1, 0, translation[1],
+                0, 0, 1, translation[2],
+                0, 0, 0, 1
+            });
+
+            const rotation_transform = rotationMatrix(rotation.pitch, rotation.yaw, rotation.roll);
+            return batchMatrixMultiply(&.{
+                scale_transform,
+                translation_transform,
+                rotation_transform
+            });
+}
+
+fn getViewTransform(focal_point: Vec3f, rotation: Rotation) Mat4x4 {
+    const translation_transform: Mat4x4 = transpose(.{
+        1, 0, 0, -focal_point[0],
+        0, 1, 0, -focal_point[1],
+        0, 0, 1, -focal_point[2],
+        0, 0, 0, 1
+    });
+
+    const rotation_transform = rotationMatrix(rotation.pitch, rotation.yaw, rotation.roll);
+
+    return batchMatrixMultiply(&.{
+        rotation_transform,
+        translation_transform,
+    });
+}
+
+fn getProjectionTransform(view_ratio: f32, field_of_view: f32) Mat4x4 {
+    const focal_length: f32 = 1.0/@tan(field_of_view/2.0);
+    const near: f32 = 0.01; const far: f32 = 100;
+    const divider = 1.0 / (focal_length * (far - near));
+    return transpose(.{
+        1, 0, 0, 0,
+        0, view_ratio, 0, 0,
+        0, 0, far*divider, -far * near * divider,
+        0, 0, 1.0 / focal_length, 0
+    });
+}
+
 pub fn mainLoop(self: *const App) !void {
     log.info("Executing main loop", .{});
     while (true) {
@@ -298,68 +355,22 @@ pub fn mainLoop(self: *const App) !void {
         if (glfw.windowShouldClose(self.window)) break;
         const time: f32 = @floatCast(glfw.getTime());
 
-        const scale_coef = 0.3;
-        const translate_vec: Vec3f = .{0, 0, 0};
-        const model_roll = time;
-        const model_transform = init: {
-            const scale = transpose(.{
-                scale_coef, 0, 0, 0,
-                0, scale_coef, 0, 0,
-                0, 0, scale_coef, 0,
-                0, 0, 0, 1
-            });
-            const translate = transpose(.{
-                1, 0, 0, translate_vec[0],
-                0, 1, 0, translate_vec[1],
-                0, 0, 1, translate_vec[2],
-                0, 0, 0, 1
-            });
-
-            const rotation = rotationMatrix(0, 0, model_roll);
-            break :init batchMatrixMultiply(&.{
-                scale,
-                translate,
-                rotation
-            });
-        };
-
-        const focal_point: Vec3f = .{0, 0, -1};
-        const view_pitch = std.math.degreesToRadians(115);
-        const view_transform = init: {
-            const translation: Mat4x4 = transpose(.{
-                1, 0, 0, -focal_point[0],
-                0, 1, 0, -focal_point[1],
-                0, 0, 1, -focal_point[2],
-                0, 0, 0, 1
-            });
-
-            const rotation: Mat4x4 = rotationMatrix(view_pitch, 0, 0);
-            break :init batchMatrixMultiply(&.{
-                rotation,
-                translation,
-            });
-
-        };
-
-        const ratio: f32 = 640.0/480.0;
-        const field_of_view: f32 = std.math.degreesToRadians(60);
-        const focal_length: f32 = 1.0/@tan(field_of_view/2.0);
-        const near: f32 = 0.01; const far: f32 = 100;
-        const projection = init: {
-            const divider = 1.0 / (focal_length * (far - near));
-            break :init transpose(.{
-                1, 0, 0, 0,
-                0, ratio, 0, 0,
-                0, 0, far*divider, -far * near * divider,
-                0, 0, 1.0 / focal_length, 0
-            });
-        };
+        const model_transform = getModelTransform(
+            0.3,
+            .{0, 0, 0},
+            .{ .roll = time }
+        );
+        const view_transform = getViewTransform(
+            .{0, 0, -1},
+            .{ .pitch = std.math.degreesToRadians(115) }
+        );
+        const projection_transform = getProjectionTransform(640.0/480.0, std.math.degreesToRadians(60));
 
         const uniform1: MyUniform = .{
             .time = time,
             .model_tranform = model_transform,
             .view_transform = view_transform,
-            .projection_transform = projection
+            .projection_transform = projection_transform
         };
         self.queue.writeBuffer(MyUniform, self.uniform_buffer, 0, &.{ uniform1 });
         // self.queue.writeBuffer(MyUniform, self.uniform_buffer, uniform_stride, &.{ uniform2 });
