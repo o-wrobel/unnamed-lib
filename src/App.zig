@@ -62,6 +62,8 @@ index_count: u32,
 depth_texture: wgpu.Texture,
 depth_texture_view: wgpu.TextureView,
 
+texture: wgpu.Texture,
+
 uniform_buffer: wgpu.Buffer,
 
 pub fn init(model_filename: []const u8, allocator: std.mem.Allocator, io: std.Io) !App {
@@ -258,6 +260,40 @@ pub fn init(model_filename: []const u8, allocator: std.mem.Allocator, io: std.Io
         .format = .depth24_plus,
     });
 
+    const texture = try device.createTexture(.{
+        .size = .{
+            .width = 256,
+            .height = 256
+        },
+        .mip_level_count = 1,
+        .sample_count = 1,
+        .format = .rgba8_unorm,
+        .usage = .{
+            .copy_dst = true,
+            .texture_binding = true,
+        },
+        .label = "My cool texture"
+    });
+    var pixels: [][4]u8 = try allocator.alloc([4]u8, texture.getWidth()*texture.getHeight());
+    for (0..texture.getWidth()) |i| {
+        for (0..texture.getHeight()) |j| {
+            const p = &pixels[j * texture.getWidth() + i];
+            p[0] = @intCast(i);
+            p[1] = @intCast(j);
+            p[2] = 128;
+            p[3] = 255;
+        }
+    }
+    const destination: wgpu.Queue.TexelCopyTextureInfo = .{
+        .texture = texture,
+        .aspect = .all
+    };
+    queue.writeTexture(
+        [4]u8, destination, pixels,
+        .{ .bytes_per_row = 4 * texture.getWidth(), .rows_per_image = texture.getHeight()},
+        .{} // Don't know what Extent3D is but whatever
+    );
+
     return .{
         .window = window,
         .device = device,
@@ -273,6 +309,8 @@ pub fn init(model_filename: []const u8, allocator: std.mem.Allocator, io: std.Io
 
         .depth_texture = depth_texture,
         .depth_texture_view = depth_texture_view,
+
+        .texture = texture,
 
         .uniform_buffer = uniform_buffer,
     };
