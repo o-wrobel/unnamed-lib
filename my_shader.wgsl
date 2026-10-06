@@ -6,6 +6,7 @@ struct MyUniform {
 }
 
 @group(0) @binding(0) var<uniform> my_uniform: MyUniform;
+@group(0) @binding(1) var gradient_texture: texture_2d<f32>;
 
 struct VertexInput {
     @location(0) position: vec3f,

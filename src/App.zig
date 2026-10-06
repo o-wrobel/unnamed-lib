@@ -129,6 +129,39 @@ pub fn init(model_filename: []const u8, allocator: std.mem.Allocator, io: std.Io
 
     };
 
+    const texture = try device.createTexture(.{
+        .size = .{
+            .width = 256,
+            .height = 256
+        },
+        .mip_level_count = 1,
+        .sample_count = 1,
+        .format = .rgba8_unorm,
+        .usage = .{
+            .copy_dst = true,
+            .texture_binding = true,
+        },
+        .label = "My cool texture"
+    });
+    const texture_view = try texture.createView(.{
+        .aspect = .all,
+        .dimension = .@"2d",
+        .format = texture.getFormat(),
+    });
+    const pixels = init: {
+        const pixels = try allocator.alloc([4]u8, texture.getWidth()*texture.getHeight());
+        for (0..texture.getWidth()) |i| {
+            for (0..texture.getHeight()) |j| {
+                const p = &pixels[j * texture.getWidth() + i];
+                p[0] = @intCast(i);
+                p[1] = @intCast(j);
+                p[2] = 128;
+                p[3] = 255;
+            }
+        }
+        break :init pixels;
+    };
+
     // Loading shader
     log.info("Loading shader", .{});
     const shader_module: wgpu.ShaderModule = init: {
@@ -153,30 +186,39 @@ pub fn init(model_filename: []const u8, allocator: std.mem.Allocator, io: std.Io
         break :init uniform_buffer;
     };
 
-    const bind_group_layout = init: {
-        const binding_layout: wgpu.BindGroupLayout.Entry = .{
-            .binding = 0,
-            .visibility = .{ .vertex = true },
-            .buffer = .{
-                .binding_type = .uniform,
-                .min_binding_size = @sizeOf(MyUniform),
-                .has_dynamic_offset = true
-            },
-        };
-        break :init try device.createBindGroupLayout(.{ .entries = &.{ binding_layout }});
+    const uniform_binding_layout: wgpu.BindGroupLayout.Entry = .{
+        .binding = 0,
+        .visibility = .{ .vertex = true },
+        .buffer = .{
+            .binding_type = .uniform,
+            .min_binding_size = @sizeOf(MyUniform),
+            .has_dynamic_offset = true
+        },
     };
+    const texture_binding_layout: wgpu.BindGroupLayout.Entry = .{
+        .binding = 1,
+        .visibility = .{ .fragment = true },
+        .texture = .{ .sample_type = .float, .view_dimension = .@"2d" }
+    };
+    const bind_group_layout = try device.createBindGroupLayout(.{
+        .entries = &.{ uniform_binding_layout, texture_binding_layout }
+    });
 
     const bind_group = init: {
-        const binding: wgpu.BindGroup.Entry = .{
+        const uniform_binding: wgpu.BindGroup.Entry = .{
             .binding = 0,
             .buffer = uniform_buffer,
             .offset = 0,
             .size = @sizeOf(MyUniform)
         };
+        const texture_binding: wgpu.BindGroup.Entry = .{
+            .binding = 1,
+            .texture_view = texture_view
+        };
         break :init try device.createBindGroup(.{
             .label = "My bind group",
             .layout = bind_group_layout,
-            .entries = &.{ binding }
+            .entries = &.{ uniform_binding, texture_binding }
         });
     };
 
@@ -260,30 +302,6 @@ pub fn init(model_filename: []const u8, allocator: std.mem.Allocator, io: std.Io
         .format = .depth24_plus,
     });
 
-    const texture = try device.createTexture(.{
-        .size = .{
-            .width = 256,
-            .height = 256
-        },
-        .mip_level_count = 1,
-        .sample_count = 1,
-        .format = .rgba8_unorm,
-        .usage = .{
-            .copy_dst = true,
-            .texture_binding = true,
-        },
-        .label = "My cool texture"
-    });
-    var pixels: [][4]u8 = try allocator.alloc([4]u8, texture.getWidth()*texture.getHeight());
-    for (0..texture.getWidth()) |i| {
-        for (0..texture.getHeight()) |j| {
-            const p = &pixels[j * texture.getWidth() + i];
-            p[0] = @intCast(i);
-            p[1] = @intCast(j);
-            p[2] = 128;
-            p[3] = 255;
-        }
-    }
     const destination: wgpu.Queue.TexelCopyTextureInfo = .{
         .texture = texture,
         .aspect = .all
