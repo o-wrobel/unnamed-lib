@@ -5,16 +5,16 @@
     .minimum_zig_version = "0.16.0",
     .dependencies = .{
         .wgpu = .{
-            .url = "git+https://codeberg.org/shahwali/wgpu-zig.git#304d81bb504034d4caf5e608d2a150f680298ba1",
-            .hash = "wgpu-0.0.3-Z1CB1nh2AQCkwNLkZ6DWaoFvK6imy-TmN_-GsMXQfHV0",
+            .url = "git+https://codeberg.org/shahwali/wgpu-zig.git#e06246ab84b83bfd3348fefd7d424236b40d2429",
+            .hash = "wgpu-0.0.4-Z1CB1huNAQBfdBXaeUJFc2-LgHPf_lgvwUn-zpwxbDXC",
         },
         .zglfw = .{
-            .url = "git+https://github.com/zig-gamedev/zglfw.git#4ff80e5e747da87b09ea30cb14f54fa96cac4f68",
-            .hash = "zglfw-0.10.0-dev-zgVDNNu5IQAk-UK7gIg0LWMmMzxj4sK9xCSTisLhjgI1",
+            .url = "git+https://github.com/zig-gamedev/zglfw.git#2450fe3c4140091287c79cb41e4a8020af73d896",
+            .hash = "zglfw-0.10.0-dev-zgVDNHC7IQAbvGj5whD2Cp5TMmo5G2C9gNYaF-y-EDZ3",
         },
         .tinyobjloader = .{
-            .url = "git+https://github.com/o-wrobel/tinyobjloader-zig#76e0bccf0c7f974f28f269f1d370737bec74326b",
-            .hash = "tinyobjloader-0.0.3-x3dUpYppAgBVPqWY4admisYnJCPH8Ez8L_2-8yKugWMF",
+            .url = "git+https://github.com/o-wrobel/tinyobjloader-zig#53a7c0504dca8107dbe3b663747401731fde2e3f",
+            .hash = "tinyobjloader-0.0.4-x3dUpbdpAgDq9fp5cHMRjvkHAcWn3rC4mZP78CiS1PNQ",
         },
     },
     .paths = .{
