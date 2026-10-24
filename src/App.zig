@@ -27,9 +27,11 @@ pub const Vertex = struct {
     const pos_format: wgpu.RenderPipeline.VertexFormat = .float32x3;
     const norm_format: wgpu.RenderPipeline.VertexFormat = .float32x3;
     const col_format: wgpu.RenderPipeline.VertexFormat = .float32x3;
+    const uv_format: wgpu.RenderPipeline.VertexFormat = .float32x2;
     position: Vec3f,
     normal: Vec3f,
     color: Color,
+    uv: Vec2f,
 };
 
 const MyUniform = struct {
@@ -247,7 +249,12 @@ pub fn init(model_filename: []const u8, allocator: std.mem.Allocator, io: std.Io
         const color_attribute: wgpu.RenderPipeline.VertexAttribute = .{
             .shader_location = 2,
             .format = Vertex.col_format,
-            .offset = 2 * @sizeOf(@Vector(3, f32)),
+            .offset = 2 * @sizeOf(Vec3f),
+        };
+        const uv_attribute: wgpu.RenderPipeline.VertexAttribute = .{
+            .shader_location = 3,
+            .format = Vertex.uv_format,
+            .offset = 3 * @sizeOf(Vec3f),
         };
         const vertex_buffer_layout: wgpu.RenderPipeline.VertexBufferLayout = .{
             .array_stride = @sizeOf(Vertex),
@@ -255,6 +262,7 @@ pub fn init(model_filename: []const u8, allocator: std.mem.Allocator, io: std.Io
                 position_attribute,
                 normal_attribute,
                 color_attribute,
+                uv_attribute,
             },
         };
 
@@ -464,6 +472,7 @@ pub fn loadOBJ(filename: []const u8, allocator: std.mem.Allocator, io: std.Io) !
         const index = shape.mesh.indices[i];
         const vi: usize = @intCast(index.vertex_index);
         const ni: usize = @intCast(index.normal_index);
+        const ti: usize = @intCast(index.texcoord_index);
         vertices[i] = Vertex{
             .position = .{
                 scene.attributes.vertices.ptr[3 * vi + 0],
@@ -479,6 +488,10 @@ pub fn loadOBJ(filename: []const u8, allocator: std.mem.Allocator, io: std.Io) !
                 scene.attributes.colors.ptr[3 * vi + 0],
                 scene.attributes.colors.ptr[3 * vi + 1],
                 scene.attributes.colors.ptr[3 * vi + 2],
+            },
+            .uv = .{
+                scene.attributes.texcoords.ptr[2 * ti + 0],
+                1 - scene.attributes.texcoords.ptr[2 * ti + 1],
             },
         };
     }
