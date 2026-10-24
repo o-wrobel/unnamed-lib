@@ -25,6 +25,13 @@ pub const ortho_projection: Mat4x4 = transpose(.{
 
 });
 
+/// In radians
+const Rotation = struct {
+    pitch: f32 = 0,
+    yaw: f32 = 0,
+    roll: f32 = 0
+};
+
 const uniform_stride = 256;
 
 pub const Index = u32;
@@ -358,63 +365,6 @@ pub fn deinit(self: App, allocator: std.mem.Allocator) void {
     self.uniform_buffer.deinit();
 }
 
-/// In radians
-const Rotation = struct {
-    pitch: f32 = 0,
-    yaw: f32 = 0,
-    roll: f32 = 0
-};
-
-fn getModelTransform(scale: f32, translation: Vec3f, rotation: Rotation) Mat4x4 {
-            const scale_transform = transpose(.{
-                scale, 0, 0, 0,
-                0, scale, 0, 0,
-                0, 0, scale, 0,
-                0, 0, 0, 1
-            });
-            const translation_transform = transpose(.{
-                1, 0, 0, translation[0],
-                0, 1, 0, translation[1],
-                0, 0, 1, translation[2],
-                0, 0, 0, 1
-            });
-
-            const rotation_transform = rotationMatrix(rotation.pitch, rotation.yaw, rotation.roll);
-            return batchMatrixMultiply(&.{
-                scale_transform,
-                translation_transform,
-                rotation_transform
-            });
-}
-
-fn getViewTransform(focal_point: Vec3f, rotation: Rotation) Mat4x4 {
-    const translation_transform: Mat4x4 = transpose(.{
-        1, 0, 0, -focal_point[0],
-        0, 1, 0, -focal_point[1],
-        0, 0, 1, -focal_point[2],
-        0, 0, 0, 1
-    });
-
-    const rotation_transform = rotationMatrix(rotation.pitch, rotation.yaw, rotation.roll);
-
-    return batchMatrixMultiply(&.{
-        rotation_transform,
-        translation_transform,
-    });
-}
-
-fn getProjectionTransform(view_ratio: f32, field_of_view: f32) Mat4x4 {
-    const focal_length: f32 = 1.0/@tan(field_of_view/2.0);
-    const near: f32 = 0.01; const far: f32 = 100;
-    const divider = 1.0 / (focal_length * (far - near));
-    return transpose(.{
-        1, 0, 0, 0,
-        0, view_ratio, 0, 0,
-        0, 0, far*divider, -far * near * divider,
-        0, 0, 1.0 / focal_length, 0
-    });
-}
-
 pub fn mainLoop(self: *const App) !void {
     log.info("Executing main loop", .{});
     while (true) {
@@ -488,6 +438,60 @@ pub fn mainLoop(self: *const App) !void {
         target_view.deinit();
         _ = self.device.poll(false);
     }
+}
+
+// Utility functions
+
+// Transforms
+
+fn getModelTransform(scale: f32, translation: Vec3f, rotation: Rotation) Mat4x4 {
+            const scale_transform = transpose(.{
+                scale, 0, 0, 0,
+                0, scale, 0, 0,
+                0, 0, scale, 0,
+                0, 0, 0, 1
+            });
+            const translation_transform = transpose(.{
+                1, 0, 0, translation[0],
+                0, 1, 0, translation[1],
+                0, 0, 1, translation[2],
+                0, 0, 0, 1
+            });
+
+            const rotation_transform = rotationMatrix(rotation.pitch, rotation.yaw, rotation.roll);
+            return batchMatrixMultiply(&.{
+                scale_transform,
+                translation_transform,
+                rotation_transform
+            });
+}
+
+fn getViewTransform(focal_point: Vec3f, rotation: Rotation) Mat4x4 {
+    const translation_transform: Mat4x4 = transpose(.{
+        1, 0, 0, -focal_point[0],
+        0, 1, 0, -focal_point[1],
+        0, 0, 1, -focal_point[2],
+        0, 0, 0, 1
+    });
+
+    const rotation_transform = rotationMatrix(rotation.pitch, rotation.yaw, rotation.roll);
+
+    return batchMatrixMultiply(&.{
+        rotation_transform,
+        translation_transform,
+    });
+}
+
+fn getProjectionTransform(view_ratio: f32, field_of_view: f32) Mat4x4 {
+    const focal_length: f32 = 1.0/@tan(field_of_view/2.0);
+    const near: f32 = 0.01; const far: f32 = 100;
+    const divider = 1.0 / (focal_length * (far - near));
+    return transpose(.{
+        1, 0, 0, 0,
+        0, view_ratio, 0, 0,
+        0, 0, far*divider, -far * near * divider,
+        0, 0, 1.0 / focal_length, 0
+    });
 }
 
 pub fn loadOBJ(filename: []const u8, allocator: std.mem.Allocator, io: std.Io) ![]Vertex {
@@ -585,12 +589,7 @@ fn ceilToNextMultiple(value: usize, step: usize) usize {
     return step * divide_and_ceil;
 }
 
-fn printMatrix(mat: Mat4x4) void {
-    std.debug.print("{}, {}, {}, {}\n", .{mat[0], mat[4], mat[8], mat[12]});
-    std.debug.print("{}, {}, {}, {}\n", .{mat[1], mat[5], mat[9], mat[13]});
-    std.debug.print("{}, {}, {}, {}\n", .{mat[2], mat[6], mat[10], mat[14]});
-    std.debug.print("{}, {}, {}, {}\n", .{mat[3], mat[7], mat[11], mat[15]});
-}
+// Matrix functions
 
 fn transpose(mat: Mat4x4) Mat4x4 {
     return .{
@@ -658,6 +657,13 @@ fn rotationMatrix(pitch: f32, yaw: f32, roll: f32) Mat4x4 {
         yaw_tr,
         pitch_tr
     });
+}
+
+fn printMatrix(mat: Mat4x4) void {
+    std.debug.print("{}, {}, {}, {}\n", .{mat[0], mat[4], mat[8], mat[12]});
+    std.debug.print("{}, {}, {}, {}\n", .{mat[1], mat[5], mat[9], mat[13]});
+    std.debug.print("{}, {}, {}, {}\n", .{mat[2], mat[6], mat[10], mat[14]});
+    std.debug.print("{}, {}, {}, {}\n", .{mat[3], mat[7], mat[11], mat[15]});
 }
 
 fn color(c: Color) wgpu.Color {
