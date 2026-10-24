@@ -154,19 +154,8 @@ pub fn init(model_filename: []const u8, allocator: std.mem.Allocator, io: std.Io
         .dimension = .@"2d",
         .format = texture.getFormat(),
     });
-    const pixels = init: {
-        const pixels = try allocator.alloc([4]u8, texture.getWidth() * texture.getHeight());
-        for (0..texture.getWidth()) |i| {
-            for (0..texture.getHeight()) |j| {
-                const p = &pixels[j * texture.getWidth() + i];
-                p[0] = @intCast(i);
-                p[1] = @intCast(j);
-                p[2] = 128;
-                p[3] = 255;
-            }
-        }
-        break :init pixels;
-    };
+
+    const pixels = try textureImage(texture.getWidth(), texture.getHeight(), allocator);
 
     // Loading shader
     log.info("Loading shader", .{});
@@ -456,6 +445,26 @@ pub fn mainLoop(self: *const App) !void {
 }
 
 // Utility functions
+
+fn textureImage(width: usize, height: usize, allocator: std.mem.Allocator) ![][4]u8 {
+    return init: {
+        const pixels = try allocator.alloc([4]u8, width * height);
+        for (0..width) |i| {
+            for (0..height) |j| {
+                const i_s: i32 = @intCast(i);
+                const j_s: i32 = @intCast(j);
+
+                const red: u8 = if (@mod((@divTrunc(i_s, 16)), 2) == @mod((@divTrunc(j_s, 16)), 2)) 255 else 0;
+                const green: u8 = if (@mod((@divTrunc(i_s - j_s, 16)), 2) == 0) 255 else 0;
+                const blue: u8 = if (@mod((@divTrunc(i_s + j_s, 16)), 2) == 0) 255 else 0;
+                const alpha: u8 = 255;
+
+                pixels[j * width + i] = .{ red, green, blue, alpha };
+            }
+        }
+        break :init pixels;
+    };
+}
 
 pub fn loadOBJ(filename: []const u8, allocator: std.mem.Allocator, io: std.Io) ![]Vertex {
     const model_file = try std.Io.Dir.cwd().openFile(io, filename, .{});
