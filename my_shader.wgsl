@@ -51,7 +51,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
 
     let shading_color = shading1 * light_color1 + shading2 * light_color2;
 
-    let color = in.color * shading_color;
+    let color = textureLoad(gradient_texture, vec2i(in.position.xy), 0).rgb;
     let linear_color = pow(color, vec3f(2.2));
     return vec4f(linear_color, 1);
 }

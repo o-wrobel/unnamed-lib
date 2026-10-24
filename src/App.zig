@@ -17,6 +17,13 @@ pub const identity_matrix: Mat4x4 = .{
     0, 0, 1, 0,
     0, 0, 0, 1
 };
+pub const ortho_projection: Mat4x4 = transpose(.{
+    1, 0, 0, 0,
+    0, 1, 0, 0,
+    0, 0, -1, 0,
+    0, 0, 0, 1
+
+});
 
 const uniform_stride = 256;
 
@@ -62,6 +69,7 @@ index_count: u32,
 depth_texture: wgpu.Texture,
 depth_texture_view: wgpu.TextureView,
 
+pixel_image: [][4]u8,
 texture: wgpu.Texture,
 
 uniform_buffer: wgpu.Buffer,
@@ -309,7 +317,7 @@ pub fn init(model_filename: []const u8, allocator: std.mem.Allocator, io: std.Io
     queue.writeTexture(
         [4]u8, destination, pixels,
         .{ .bytes_per_row = 4 * texture.getWidth(), .rows_per_image = texture.getHeight()},
-        .{} // Don't know what Extent3D is but whatever
+        .{ .width = texture.getWidth(), .height = texture.getHeight() }
     );
 
     return .{
@@ -328,13 +336,14 @@ pub fn init(model_filename: []const u8, allocator: std.mem.Allocator, io: std.Io
         .depth_texture = depth_texture,
         .depth_texture_view = depth_texture_view,
 
+        .pixel_image = pixels,
         .texture = texture,
 
         .uniform_buffer = uniform_buffer,
     };
 }
 
-pub fn deinit(self: App) void {
+pub fn deinit(self: App, allocator: std.mem.Allocator) void {
     log.info("Deinitializing", .{});
     self.device.deinit();
     self.queue.deinit();
@@ -342,6 +351,8 @@ pub fn deinit(self: App) void {
     self.window.destroy();
     self.bind_group.deinit();
     self.render_pipeline.deinit();
+
+    allocator.free(self.pixel_image);
 
     self.vertex_buffer.deinit();
     self.uniform_buffer.deinit();
@@ -411,16 +422,20 @@ pub fn mainLoop(self: *const App) !void {
         if (glfw.windowShouldClose(self.window)) break;
         const time: f32 = @floatCast(glfw.getTime());
 
-        const model_transform = getModelTransform(
-            0.3,
-            .{0, 0, 0},
-            .{ .roll = time }
-        );
-        const view_transform = getViewTransform(
-            .{0, 0, -1},
-            .{ .pitch = std.math.degreesToRadians(115) }
-        );
-        const projection_transform = getProjectionTransform(640.0/480.0, std.math.degreesToRadians(60));
+        // const model_transform = getModelTransform(
+        //     0.3,
+        //     .{0, 0, 0},
+        //     .{ .roll = time }
+        // );
+        // const view_transform = getViewTransform(
+        //     .{0, 0, -1},
+        //     .{ .pitch = std.math.degreesToRadians(115) }
+        // );
+        // const projection_transform = getProjectionTransform(640.0/480.0, std.math.degreesToRadians(60));
+
+        const model_transform = identity_matrix;
+        const view_transform = identity_matrix;
+        const projection_transform = ortho_projection;
 
         const uniform1: MyUniform = .{
             .time = time,
