@@ -14,17 +14,11 @@ pub fn build(b: *std.Build) void {
     const tinyobj_dep = b.dependency("tinyobjloader", .{});
     const tinyobjloader = tinyobj_dep.module("tinyobjloader");
 
-    const app_mod = b.createModule(.{
-        .root_source_file = b.path("src/App.zig"),
-        .target = target,
-        .optimize = optimize,
-        .link_libc = true,
-        .imports = &.{
-            .{ .module = wgpu, .name = "wgpu" },
-            .{ .module = glfw, .name = "glfw" },
-            .{ .module = tinyobjloader, .name = "tinyobj" },
-        }
-    });
+    const app_mod = b.createModule(.{ .root_source_file = b.path("src/App.zig"), .target = target, .optimize = optimize, .link_libc = true, .imports = &.{
+        .{ .module = wgpu, .name = "wgpu" },
+        .{ .module = glfw, .name = "glfw" },
+        .{ .module = tinyobjloader, .name = "tinyobj" },
+    } });
     app_mod.linkLibrary(glfw_lib);
 
     // On NixOS, X11/Wayland are not in default linker paths.
@@ -36,17 +30,7 @@ pub fn build(b: *std.Build) void {
         }
     }
 
-    const exe_mod = b.createModule(.{
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = optimize,
-        .link_libc = true,
-        .imports = &.{
-            .{ .module = wgpu, .name = "wgpu" },
-            .{ .module = glfw, .name = "glfw" },
-            .{ .module = app_mod, .name = "App" }
-        }
-    });
+    const exe_mod = b.createModule(.{ .root_source_file = b.path("src/main.zig"), .target = target, .optimize = optimize, .link_libc = true, .imports = &.{ .{ .module = wgpu, .name = "wgpu" }, .{ .module = glfw, .name = "glfw" }, .{ .module = app_mod, .name = "App" } } });
     exe_mod.linkLibrary(glfw_lib);
 
     // On NixOS, X11/Wayland are not in default linker paths.

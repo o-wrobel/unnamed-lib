@@ -18,6 +18,7 @@ struct VertexOutput {
     @builtin(position) position: vec4f,
     @location(0) color: vec3f,
     @location(1) normal: vec3f,
+    @location(2) uv: vec2f,
 }
 
 @vertex
@@ -34,6 +35,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     out.position = (projection * view * model * vec4f(pos, 1));
     out.color = in.color;
     out.normal = (my_uniform.model_transform * vec4f(in.normal, 0)).xyz;
+    out.uv = in.position.xy * 0.5 + 0.5;
     return out;
 }
 
@@ -51,7 +53,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
 
     let shading_color = shading1 * light_color1 + shading2 * light_color2;
 
-    let color = textureLoad(gradient_texture, vec2i(in.position.xy), 0).rgb;
+    let texel_coords = vec2i(in.uv * vec2f(textureDimensions(gradient_texture)));
+    let color = textureLoad(gradient_texture, vec2i(texel_coords), 0).rgb;
     let linear_color = pow(color, vec3f(2.2));
     return vec4f(linear_color, 1);
 }

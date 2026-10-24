@@ -70,7 +70,7 @@ pub fn printMatrix(mat: Mat4x4) void {
 
 // Transform functions
 
-fn modelTransform(scale: f32, translation: Vec3f, rotation: Rotation) Mat4x4 {
+pub fn modelTransform(scale: f32, translation: Vec3f, rotation: Rotation) Mat4x4 {
     const scale_transform = transpose(.{ scale, 0, 0, 0, 0, scale, 0, 0, 0, 0, scale, 0, 0, 0, 0, 1 });
     const translation_transform = transpose(.{ 1, 0, 0, translation[0], 0, 1, 0, translation[1], 0, 0, 1, translation[2], 0, 0, 0, 1 });
 
@@ -78,7 +78,7 @@ fn modelTransform(scale: f32, translation: Vec3f, rotation: Rotation) Mat4x4 {
     return batchMatrixMultiply(&.{ scale_transform, translation_transform, rotation_transform });
 }
 
-fn viewTransform(focal_point: Vec3f, rotation: Rotation) Mat4x4 {
+pub fn viewTransform(focal_point: Vec3f, rotation: Rotation) Mat4x4 {
     const translation_transform: Mat4x4 = transpose(.{ 1, 0, 0, -focal_point[0], 0, 1, 0, -focal_point[1], 0, 0, 1, -focal_point[2], 0, 0, 0, 1 });
 
     const rotation_transform = rotationMatrix(rotation.pitch, rotation.yaw, rotation.roll);
@@ -89,7 +89,7 @@ fn viewTransform(focal_point: Vec3f, rotation: Rotation) Mat4x4 {
     });
 }
 
-fn projectionTransform(view_ratio: f32, field_of_view: f32) Mat4x4 {
+pub fn projectionTransform(view_ratio: f32, field_of_view: f32) Mat4x4 {
     const focal_length: f32 = 1.0 / @tan(field_of_view / 2.0);
     const near: f32 = 0.01;
     const far: f32 = 100;

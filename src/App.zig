@@ -13,6 +13,9 @@ const ortho_projection = math.ortho_projection;
 const transpose = math.transpose;
 const rotationMatrix = math.rotationMatrix;
 const batchMatrixMultiply = math.batchMatrixMultiply;
+const modelTransform = math.modelTransform;
+const viewTransform = math.viewTransform;
+const projectionTransform = math.projectionTransform;
 const Vec2f = math.Vec2f;
 const Vec3f = math.Vec3f;
 
@@ -78,7 +81,13 @@ pub fn init(model_filename: []const u8, allocator: std.mem.Allocator, io: std.Io
     glfw.windowHint(.client_api, .no_api);
     glfw.windowHint(.resizable, false);
     log.info("Creating window", .{});
-    const window: *Window = try .create(window_width, window_height, "Hello, GLFW!", null, null);
+    const window: *Window = try .create(
+        window_width,
+        window_height,
+        "Hello, GLFW!",
+        null,
+        null,
+    );
 
     // WGPU
     const instance = try wgpu.Instance.init(null);
@@ -88,7 +97,10 @@ pub fn init(model_filename: []const u8, allocator: std.mem.Allocator, io: std.Io
     defer adapter.deinit();
     // printLimits(try adapter.getLimits());
 
-    const device = try adapter.requestDeviceSync(.{ .label = "My cool device", .queue_label = "Default queue" });
+    const device = try adapter.requestDeviceSync(.{
+        .label = "My cool device",
+        .queue_label = "Default queue",
+    });
     // TODO: Set up callback functions
 
     const queue = try device.getQueue();
@@ -124,10 +136,17 @@ pub fn init(model_filename: []const u8, allocator: std.mem.Allocator, io: std.Io
         break :init surface;
     };
 
-    const texture = try device.createTexture(.{ .size = .{ .width = 256, .height = 256 }, .mip_level_count = 1, .sample_count = 1, .format = .rgba8_unorm, .usage = .{
-        .copy_dst = true,
-        .texture_binding = true,
-    }, .label = "My cool texture" });
+    const texture = try device.createTexture(.{
+        .size = .{ .width = 256, .height = 256 },
+        .mip_level_count = 1,
+        .sample_count = 1,
+        .format = .rgba8_unorm,
+        .usage = .{
+            .copy_dst = true,
+            .texture_binding = true,
+        },
+        .label = "My cool texture",
+    });
     const texture_view = try texture.createView(.{
         .aspect = .all,
         .dimension = .@"2d",
@@ -164,45 +183,91 @@ pub fn init(model_filename: []const u8, allocator: std.mem.Allocator, io: std.Io
         // const uniform_stride = ceilToNextMultiple(@sizeOf(MyUniform), min_alignment);
         // TODO: Figure this out instead of hard-coding
 
-        const uniform_buffer = try device.createBuffer(.{ .size = 2 * uniform_stride, .usage = .{ .copy_dst = true, .uniform = true } });
+        const uniform_buffer = try device.createBuffer(.{
+            .size = 2 * uniform_stride,
+            .usage = .{ .copy_dst = true, .uniform = true },
+        });
         break :init uniform_buffer;
     };
 
     const uniform_binding_layout: wgpu.BindGroupLayout.Entry = .{
         .binding = 0,
         .visibility = .{ .vertex = true },
-        .buffer = .{ .binding_type = .uniform, .min_binding_size = @sizeOf(MyUniform), .has_dynamic_offset = true },
+        .buffer = .{
+            .binding_type = .uniform,
+            .min_binding_size = @sizeOf(MyUniform),
+            .has_dynamic_offset = true,
+        },
     };
-    const texture_binding_layout: wgpu.BindGroupLayout.Entry = .{ .binding = 1, .visibility = .{ .fragment = true }, .texture = .{ .sample_type = .float, .view_dimension = .@"2d" } };
-    const bind_group_layout = try device.createBindGroupLayout(.{ .entries = &.{ uniform_binding_layout, texture_binding_layout } });
+    const texture_binding_layout: wgpu.BindGroupLayout.Entry = .{
+        .binding = 1,
+        .visibility = .{ .fragment = true },
+        .texture = .{ .sample_type = .float, .view_dimension = .@"2d" },
+    };
+    const bind_group_layout = try device.createBindGroupLayout(.{
+        .entries = &.{ uniform_binding_layout, texture_binding_layout },
+    });
 
     const bind_group = init: {
-        const uniform_binding: wgpu.BindGroup.Entry = .{ .binding = 0, .buffer = uniform_buffer, .offset = 0, .size = @sizeOf(MyUniform) };
-        const texture_binding: wgpu.BindGroup.Entry = .{ .binding = 1, .texture_view = texture_view };
-        break :init try device.createBindGroup(.{ .label = "My bind group", .layout = bind_group_layout, .entries = &.{ uniform_binding, texture_binding } });
+        const uniform_binding: wgpu.BindGroup.Entry = .{
+            .binding = 0,
+            .buffer = uniform_buffer,
+            .offset = 0,
+            .size = @sizeOf(MyUniform),
+        };
+        const texture_binding: wgpu.BindGroup.Entry = .{
+            .binding = 1,
+            .texture_view = texture_view,
+        };
+        break :init try device.createBindGroup(.{
+            .label = "My bind group",
+            .layout = bind_group_layout,
+            .entries = &.{ uniform_binding, texture_binding },
+        });
     };
 
     const render_pipeline = init: {
         const blend_state: wgpu.RenderPipeline.BlendState = .{};
-        const color_target: wgpu.RenderPipeline.ColorTargetState = .{ .format = (try surface.getCapabilities(adapter.adapter)).formats[0], .blend = blend_state, .write_mask = .all };
+        const color_target: wgpu.RenderPipeline.ColorTargetState = .{
+            .format = (try surface.getCapabilities(adapter.adapter)).formats[0],
+            .blend = blend_state,
+            .write_mask = .all,
+        };
 
-        const position_attribute: wgpu.RenderPipeline.VertexAttribute = .{ .shader_location = 0, .format = Vertex.pos_format, .offset = 0 };
+        const position_attribute: wgpu.RenderPipeline.VertexAttribute = .{
+            .shader_location = 0,
+            .format = Vertex.pos_format,
+            .offset = 0,
+        };
         const normal_attribute: wgpu.RenderPipeline.VertexAttribute = .{
             .shader_location = 1,
             .format = Vertex.norm_format,
             .offset = 1 * @sizeOf(Vec3f),
         };
-        const color_attribute: wgpu.RenderPipeline.VertexAttribute = .{ .shader_location = 2, .format = Vertex.col_format, .offset = 2 * @sizeOf(@Vector(3, f32)) };
+        const color_attribute: wgpu.RenderPipeline.VertexAttribute = .{
+            .shader_location = 2,
+            .format = Vertex.col_format,
+            .offset = 2 * @sizeOf(@Vector(3, f32)),
+        };
         const vertex_buffer_layout: wgpu.RenderPipeline.VertexBufferLayout = .{
             .array_stride = @sizeOf(Vertex),
-            .attributes = &.{ position_attribute, normal_attribute, color_attribute },
+            .attributes = &.{
+                position_attribute,
+                normal_attribute,
+                color_attribute,
+            },
         };
 
         const layout = try device.createPipelineLayout("My pipeline layout", &.{bind_group_layout}, 0);
 
         break :init try device.createRenderPipeline(.{
             .label = "My render pipeline",
-            .primitive = .{ .topology = .triangle_list, .strip_index_format = .undefined, .front_face = .ccw, .cull_mode = .none },
+            .primitive = .{
+                .topology = .triangle_list,
+                .strip_index_format = .undefined,
+                .front_face = .ccw,
+                .cull_mode = .none,
+            },
             .vertex = .{
                 .module = shader_module,
                 .entry_point = "vs_main",
@@ -214,12 +279,21 @@ pub fn init(model_filename: []const u8, allocator: std.mem.Allocator, io: std.Io
                 .targets = &.{color_target}, // Only one target for only one output color attachment
             },
             .layout = layout,
-            .depth_stencil = .{ .depth_compare = .less, .depth_write_enabled = true, .format = .depth24_plus, .stencil_read_mask = 0, .stencil_write_mask = 0 },
+            .depth_stencil = .{
+                .depth_compare = .less,
+                .depth_write_enabled = true,
+                .format = .depth24_plus,
+                .stencil_read_mask = 0,
+                .stencil_write_mask = 0,
+            },
         });
     };
 
     const vertex_buffer, const vertex_count: u32 = init: {
-        const vertex_buffer = try device.createBuffer(.{ .size = vertices.len * @sizeOf(Vertex), .usage = .{ .copy_dst = true, .vertex = true } });
+        const vertex_buffer = try device.createBuffer(.{
+            .size = vertices.len * @sizeOf(Vertex),
+            .usage = .{ .copy_dst = true, .vertex = true },
+        });
         queue.writeBuffer(Vertex, vertex_buffer, 0, vertices);
         break :init .{ vertex_buffer, @intCast(vertices.len) };
     };
@@ -239,8 +313,23 @@ pub fn init(model_filename: []const u8, allocator: std.mem.Allocator, io: std.Io
         .format = .depth24_plus,
     });
 
-    const destination: wgpu.Queue.TexelCopyTextureInfo = .{ .texture = texture, .aspect = .all };
-    queue.writeTexture([4]u8, destination, pixels, .{ .bytes_per_row = 4 * texture.getWidth(), .rows_per_image = texture.getHeight() }, .{ .width = texture.getWidth(), .height = texture.getHeight() });
+    const destination: wgpu.Queue.TexelCopyTextureInfo = .{
+        .texture = texture,
+        .aspect = .all,
+    };
+    queue.writeTexture(
+        [4]u8,
+        destination,
+        pixels,
+        .{
+            .bytes_per_row = 4 * texture.getWidth(),
+            .rows_per_image = texture.getHeight(),
+        },
+        .{
+            .width = texture.getWidth(),
+            .height = texture.getHeight(),
+        },
+    );
 
     return .{
         .window = window,
@@ -287,28 +376,31 @@ pub fn mainLoop(self: *const App) !void {
         if (glfw.windowShouldClose(self.window)) break;
         const time: f32 = @floatCast(glfw.getTime());
 
-        // const model_transform = getModelTransform(
-        //     0.3,
-        //     .{0, 0, 0},
-        //     .{ .roll = time }
-        // );
-        // const view_transform = getViewTransform(
-        //     .{0, 0, -1},
-        //     .{ .pitch = std.math.degreesToRadians(115) }
-        // );
-        // const projection_transform = getProjectionTransform(640.0/480.0, std.math.degreesToRadians(60));
+        const model_transform = modelTransform(
+            0.3,
+            .{ 0, 0, 0 },
+            .{ .roll = time },
+        );
+        const view_transform = viewTransform(
+            .{ 0, 0, -1 },
+            .{ .pitch = std.math.degreesToRadians(115) },
+        );
+        const projection_transform = projectionTransform(
+            640.0 / 480.0,
+            std.math.degreesToRadians(60),
+        );
 
-        const model_transform = identity_matrix;
-        const view_transform = identity_matrix;
-        const projection_transform = ortho_projection;
+        // const model_transform = identity_matrix;
+        // const view_transform = identity_matrix;
+        // const projection_transform = ortho_projection;
 
         const uniform1: MyUniform = .{
             .time = time,
             .model_tranform = model_transform,
             .view_transform = view_transform,
-            .projection_transform = projection_transform
+            .projection_transform = projection_transform,
         };
-        self.queue.writeBuffer(MyUniform, self.uniform_buffer, 0, &.{ uniform1 });
+        self.queue.writeBuffer(MyUniform, self.uniform_buffer, 0, &.{uniform1});
         // self.queue.writeBuffer(MyUniform, self.uniform_buffer, uniform_stride, &.{ uniform2 });
 
         const target_view = try getNextSurfaceTextureView(self.surface) orelse continue;
@@ -331,7 +423,7 @@ pub fn mainLoop(self: *const App) !void {
                 .depth_load_op = .clear,
                 .depth_store_op = .store,
                 .depth_read_only = false,
-            }
+            },
         });
 
         render_pass.setPipeline(self.render_pipeline);
@@ -419,8 +511,9 @@ fn getNextSurfaceTextureView(surface: wgpu.Surface) !?wgpu.TextureView {
             .label = "Surface texture view",
             .format = surface_texture.getFormat(),
             .dimension = .@"2d",
-            .aspect = .all
-        });
+            .aspect = .all,
+        },
+    );
 }
 
 fn color(c: Color) wgpu.Color {
