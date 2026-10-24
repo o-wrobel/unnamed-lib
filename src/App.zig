@@ -160,7 +160,7 @@ pub fn init(model_filename: []const u8, allocator: std.mem.Allocator, io: std.Io
     // Loading shader
     log.info("Loading shader", .{});
     const shader_module: wgpu.ShaderModule = init: {
-        const shader_file = try std.Io.Dir.cwd().openFile(io, "my_shader.wgsl", .{});
+        const shader_file = try std.Io.Dir.cwd().openFile(io, "src/my_shader.wgsl", .{});
         const sf_length = shader_file.length(io) catch unreachable;
         var sf_reader = shader_file.reader(io, &.{});
         const shader_text = try sf_reader.interface.allocRemaining(allocator, .limited64(sf_length + 1));
