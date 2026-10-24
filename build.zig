@@ -57,12 +57,7 @@ pub fn build(b: *std.Build) void {
             exe_mod.addLibraryPath(.{ .cwd_relative = dir });
         }
     }
-    const exe = b.addExecutable(.{
-        .name = "wgpu",
-        .root_module = exe_mod
-    });
-
-
+    const exe = b.addExecutable(.{ .name = "wgpu", .root_module = exe_mod });
 
     // This declares intent for the executable to be installed into the
     // install prefix when running `zig build` (i.e. when executing the default

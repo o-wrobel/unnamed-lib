@@ -2,39 +2,23 @@ const std = @import("std");
 
 const glfw = @import("glfw");
 const Window = glfw.Window;
-const wgpu = @import("wgpu");
 const obj = @import("tinyobj");
 const Scene = obj.Scene;
+const wgpu = @import("wgpu");
 
-pub const Vec2f = @Vector(2, f32);
-pub const Vec3f = @Vector(3, f32);
+pub const math = @import("math.zig");
+const Mat4x4 = math.Mat4x4;
+const identity_matrix = math.identity_matrix;
+const ortho_projection = math.ortho_projection;
+const transpose = math.transpose;
+const rotationMatrix = math.rotationMatrix;
+const batchMatrixMultiply = math.batchMatrixMultiply;
+const Vec2f = math.Vec2f;
+const Vec3f = math.Vec3f;
+
 pub const Color = @Vector(3, f32);
 
-pub const Mat4x4 = [16]f32;
-pub const identity_matrix: Mat4x4 = .{
-    1, 0, 0, 0,
-    0, 1, 0, 0,
-    0, 0, 1, 0,
-    0, 0, 0, 1
-};
-pub const ortho_projection: Mat4x4 = transpose(.{
-    1, 0, 0, 0,
-    0, 1, 0, 0,
-    0, 0, -1, 0,
-    0, 0, 0, 1
-
-});
-
-/// In radians
-const Rotation = struct {
-    pitch: f32 = 0,
-    yaw: f32 = 0,
-    roll: f32 = 0
-};
-
 const uniform_stride = 256;
-
-pub const Index = u32;
 
 pub const Vertex = struct {
     const pos_format: wgpu.RenderPipeline.VertexFormat = .float32x3;
@@ -42,7 +26,7 @@ pub const Vertex = struct {
     const col_format: wgpu.RenderPipeline.VertexFormat = .float32x3;
     position: Vec3f,
     normal: Vec3f,
-    color: Color
+    color: Color,
 };
 
 const MyUniform = struct {
@@ -55,7 +39,7 @@ const MyUniform = struct {
 
 const window_width = 640;
 const window_height = 480;
-const background_color: Color = .{0.1, 0.1, 0.1};
+const background_color: Color = .{ 0.1, 0.1, 0.1 };
 
 pub const App = @This();
 
@@ -104,10 +88,7 @@ pub fn init(model_filename: []const u8, allocator: std.mem.Allocator, io: std.Io
     defer adapter.deinit();
     // printLimits(try adapter.getLimits());
 
-    const device = try adapter.requestDeviceSync(.{
-        .label = "My cool device",
-        .queue_label = "Default queue"
-    });
+    const device = try adapter.requestDeviceSync(.{ .label = "My cool device", .queue_label = "Default queue" });
     // TODO: Set up callback functions
 
     const queue = try device.getQueue();
@@ -141,30 +122,19 @@ pub fn init(model_filename: []const u8, allocator: std.mem.Allocator, io: std.Io
             .device = device,
         });
         break :init surface;
-
     };
 
-    const texture = try device.createTexture(.{
-        .size = .{
-            .width = 256,
-            .height = 256
-        },
-        .mip_level_count = 1,
-        .sample_count = 1,
-        .format = .rgba8_unorm,
-        .usage = .{
-            .copy_dst = true,
-            .texture_binding = true,
-        },
-        .label = "My cool texture"
-    });
+    const texture = try device.createTexture(.{ .size = .{ .width = 256, .height = 256 }, .mip_level_count = 1, .sample_count = 1, .format = .rgba8_unorm, .usage = .{
+        .copy_dst = true,
+        .texture_binding = true,
+    }, .label = "My cool texture" });
     const texture_view = try texture.createView(.{
         .aspect = .all,
         .dimension = .@"2d",
         .format = texture.getFormat(),
     });
     const pixels = init: {
-        const pixels = try allocator.alloc([4]u8, texture.getWidth()*texture.getHeight());
+        const pixels = try allocator.alloc([4]u8, texture.getWidth() * texture.getHeight());
         for (0..texture.getWidth()) |i| {
             for (0..texture.getHeight()) |j| {
                 const p = &pixels[j * texture.getWidth() + i];
@@ -183,7 +153,7 @@ pub fn init(model_filename: []const u8, allocator: std.mem.Allocator, io: std.Io
         const shader_file = try std.Io.Dir.cwd().openFile(io, "my_shader.wgsl", .{});
         const sf_length = shader_file.length(io) catch unreachable;
         var sf_reader = shader_file.reader(io, &.{});
-        const shader_text = try sf_reader.interface.allocRemaining(allocator, .limited64(sf_length+1));
+        const shader_text = try sf_reader.interface.allocRemaining(allocator, .limited64(sf_length + 1));
         defer allocator.free(shader_text);
         const shader_source: wgpu.ShaderSource = .{ .wgsl = shader_text };
         break :init try .init(device.device, shader_source);
@@ -194,122 +164,74 @@ pub fn init(model_filename: []const u8, allocator: std.mem.Allocator, io: std.Io
         // const uniform_stride = ceilToNextMultiple(@sizeOf(MyUniform), min_alignment);
         // TODO: Figure this out instead of hard-coding
 
-        const uniform_buffer = try device.createBuffer(.{
-            .size = 2*uniform_stride,
-            .usage = .{ .copy_dst = true, .uniform = true }
-        });
+        const uniform_buffer = try device.createBuffer(.{ .size = 2 * uniform_stride, .usage = .{ .copy_dst = true, .uniform = true } });
         break :init uniform_buffer;
     };
 
     const uniform_binding_layout: wgpu.BindGroupLayout.Entry = .{
         .binding = 0,
         .visibility = .{ .vertex = true },
-        .buffer = .{
-            .binding_type = .uniform,
-            .min_binding_size = @sizeOf(MyUniform),
-            .has_dynamic_offset = true
-        },
+        .buffer = .{ .binding_type = .uniform, .min_binding_size = @sizeOf(MyUniform), .has_dynamic_offset = true },
     };
-    const texture_binding_layout: wgpu.BindGroupLayout.Entry = .{
-        .binding = 1,
-        .visibility = .{ .fragment = true },
-        .texture = .{ .sample_type = .float, .view_dimension = .@"2d" }
-    };
-    const bind_group_layout = try device.createBindGroupLayout(.{
-        .entries = &.{ uniform_binding_layout, texture_binding_layout }
-    });
+    const texture_binding_layout: wgpu.BindGroupLayout.Entry = .{ .binding = 1, .visibility = .{ .fragment = true }, .texture = .{ .sample_type = .float, .view_dimension = .@"2d" } };
+    const bind_group_layout = try device.createBindGroupLayout(.{ .entries = &.{ uniform_binding_layout, texture_binding_layout } });
 
     const bind_group = init: {
-        const uniform_binding: wgpu.BindGroup.Entry = .{
-            .binding = 0,
-            .buffer = uniform_buffer,
-            .offset = 0,
-            .size = @sizeOf(MyUniform)
-        };
-        const texture_binding: wgpu.BindGroup.Entry = .{
-            .binding = 1,
-            .texture_view = texture_view
-        };
-        break :init try device.createBindGroup(.{
-            .label = "My bind group",
-            .layout = bind_group_layout,
-            .entries = &.{ uniform_binding, texture_binding }
-        });
+        const uniform_binding: wgpu.BindGroup.Entry = .{ .binding = 0, .buffer = uniform_buffer, .offset = 0, .size = @sizeOf(MyUniform) };
+        const texture_binding: wgpu.BindGroup.Entry = .{ .binding = 1, .texture_view = texture_view };
+        break :init try device.createBindGroup(.{ .label = "My bind group", .layout = bind_group_layout, .entries = &.{ uniform_binding, texture_binding } });
     };
 
     const render_pipeline = init: {
         const blend_state: wgpu.RenderPipeline.BlendState = .{};
-        const color_target: wgpu.RenderPipeline.ColorTargetState = .{
-            .format = (try surface.getCapabilities(adapter.adapter)).formats[0],
-            .blend = blend_state,
-            .write_mask = .all
-        };
+        const color_target: wgpu.RenderPipeline.ColorTargetState = .{ .format = (try surface.getCapabilities(adapter.adapter)).formats[0], .blend = blend_state, .write_mask = .all };
 
-        const position_attribute: wgpu.RenderPipeline.VertexAttribute = .{
-            .shader_location = 0,
-            .format = Vertex.pos_format,
-            .offset = 0
-        };
+        const position_attribute: wgpu.RenderPipeline.VertexAttribute = .{ .shader_location = 0, .format = Vertex.pos_format, .offset = 0 };
         const normal_attribute: wgpu.RenderPipeline.VertexAttribute = .{
             .shader_location = 1,
             .format = Vertex.norm_format,
             .offset = 1 * @sizeOf(Vec3f),
         };
-        const color_attribute: wgpu.RenderPipeline.VertexAttribute = .{
-            .shader_location = 2,
-            .format = Vertex.col_format,
-            .offset = 2 * @sizeOf(@Vector(3, f32))
-        };
+        const color_attribute: wgpu.RenderPipeline.VertexAttribute = .{ .shader_location = 2, .format = Vertex.col_format, .offset = 2 * @sizeOf(@Vector(3, f32)) };
         const vertex_buffer_layout: wgpu.RenderPipeline.VertexBufferLayout = .{
             .array_stride = @sizeOf(Vertex),
             .attributes = &.{ position_attribute, normal_attribute, color_attribute },
         };
 
-        const layout = try device.createPipelineLayout("My pipeline layout", &.{ bind_group_layout }, 0);
+        const layout = try device.createPipelineLayout("My pipeline layout", &.{bind_group_layout}, 0);
 
         break :init try device.createRenderPipeline(.{
             .label = "My render pipeline",
-            .primitive = .{
-                .topology = .triangle_list,
-                .strip_index_format = .undefined,
-                .front_face = .ccw,
-                .cull_mode = .none
-            },
+            .primitive = .{ .topology = .triangle_list, .strip_index_format = .undefined, .front_face = .ccw, .cull_mode = .none },
             .vertex = .{
                 .module = shader_module,
                 .entry_point = "vs_main",
-                .buffers = &.{ vertex_buffer_layout },
+                .buffers = &.{vertex_buffer_layout},
             },
             .fragment = .{
                 .module = shader_module,
                 .entry_point = "fs_main",
-                .targets = &.{ color_target } // Only one target for only one output color attachment
+                .targets = &.{color_target}, // Only one target for only one output color attachment
             },
             .layout = layout,
-            .depth_stencil = .{
-                .depth_compare = .less,
-                .depth_write_enabled = true,
-                .format = .depth24_plus,
-                .stencil_read_mask = 0,
-                .stencil_write_mask = 0
-            },
+            .depth_stencil = .{ .depth_compare = .less, .depth_write_enabled = true, .format = .depth24_plus, .stencil_read_mask = 0, .stencil_write_mask = 0 },
         });
     };
 
     const vertex_buffer, const vertex_count: u32 = init: {
-        const vertex_buffer = try device.createBuffer(.{
-            .size = vertices.len * @sizeOf(Vertex),
-            .usage = .{ .copy_dst = true, .vertex = true }
-        });
+        const vertex_buffer = try device.createBuffer(.{ .size = vertices.len * @sizeOf(Vertex), .usage = .{ .copy_dst = true, .vertex = true } });
         queue.writeBuffer(Vertex, vertex_buffer, 0, vertices);
-        break :init .{ vertex_buffer, @intCast(vertices.len )};
+        break :init .{ vertex_buffer, @intCast(vertices.len) };
     };
 
     const depth_texture = try device.createTexture(.{
         .usage = .{ .render_attachment = true },
         .dimension = .@"2d",
         .format = .depth24_plus,
-        .size = .{ .width = window_width, .height = window_height, },
+        .size = .{
+            .width = window_width,
+            .height = window_height,
+        },
     });
     const depth_texture_view = try depth_texture.createView(.{
         .aspect = .depth_only,
@@ -317,15 +239,8 @@ pub fn init(model_filename: []const u8, allocator: std.mem.Allocator, io: std.Io
         .format = .depth24_plus,
     });
 
-    const destination: wgpu.Queue.TexelCopyTextureInfo = .{
-        .texture = texture,
-        .aspect = .all
-    };
-    queue.writeTexture(
-        [4]u8, destination, pixels,
-        .{ .bytes_per_row = 4 * texture.getWidth(), .rows_per_image = texture.getHeight()},
-        .{ .width = texture.getWidth(), .height = texture.getHeight() }
-    );
+    const destination: wgpu.Queue.TexelCopyTextureInfo = .{ .texture = texture, .aspect = .all };
+    queue.writeTexture([4]u8, destination, pixels, .{ .bytes_per_row = 4 * texture.getWidth(), .rows_per_image = texture.getHeight() }, .{ .width = texture.getWidth(), .height = texture.getHeight() });
 
     return .{
         .window = window,
@@ -423,7 +338,7 @@ pub fn mainLoop(self: *const App) !void {
 
         render_pass.setVertexBuffer(0, self.vertex_buffer, 0, self.vertex_buffer.size);
 
-        render_pass.setBindGroup(0, self.bind_group, &.{ 0 });
+        render_pass.setBindGroup(0, self.bind_group, &.{0});
         render_pass.draw(self.vertex_count, 1, 0, 0);
 
         render_pass.end();
@@ -442,63 +357,11 @@ pub fn mainLoop(self: *const App) !void {
 
 // Utility functions
 
-// Transforms
-
-fn getModelTransform(scale: f32, translation: Vec3f, rotation: Rotation) Mat4x4 {
-            const scale_transform = transpose(.{
-                scale, 0, 0, 0,
-                0, scale, 0, 0,
-                0, 0, scale, 0,
-                0, 0, 0, 1
-            });
-            const translation_transform = transpose(.{
-                1, 0, 0, translation[0],
-                0, 1, 0, translation[1],
-                0, 0, 1, translation[2],
-                0, 0, 0, 1
-            });
-
-            const rotation_transform = rotationMatrix(rotation.pitch, rotation.yaw, rotation.roll);
-            return batchMatrixMultiply(&.{
-                scale_transform,
-                translation_transform,
-                rotation_transform
-            });
-}
-
-fn getViewTransform(focal_point: Vec3f, rotation: Rotation) Mat4x4 {
-    const translation_transform: Mat4x4 = transpose(.{
-        1, 0, 0, -focal_point[0],
-        0, 1, 0, -focal_point[1],
-        0, 0, 1, -focal_point[2],
-        0, 0, 0, 1
-    });
-
-    const rotation_transform = rotationMatrix(rotation.pitch, rotation.yaw, rotation.roll);
-
-    return batchMatrixMultiply(&.{
-        rotation_transform,
-        translation_transform,
-    });
-}
-
-fn getProjectionTransform(view_ratio: f32, field_of_view: f32) Mat4x4 {
-    const focal_length: f32 = 1.0/@tan(field_of_view/2.0);
-    const near: f32 = 0.01; const far: f32 = 100;
-    const divider = 1.0 / (focal_length * (far - near));
-    return transpose(.{
-        1, 0, 0, 0,
-        0, view_ratio, 0, 0,
-        0, 0, far*divider, -far * near * divider,
-        0, 0, 1.0 / focal_length, 0
-    });
-}
-
 pub fn loadOBJ(filename: []const u8, allocator: std.mem.Allocator, io: std.Io) ![]Vertex {
     const model_file = try std.Io.Dir.cwd().openFile(io, filename, .{});
     const file_len = model_file.length(io) catch unreachable;
     var file_reader = model_file.reader(io, &.{});
-    const text = try file_reader.interface.allocRemaining(allocator, .limited64(file_len+1));
+    const text = try file_reader.interface.allocRemaining(allocator, .limited64(file_len + 1));
     defer allocator.free(text);
 
     const scene = try obj.loadFromMemory(text, .{});
@@ -532,145 +395,34 @@ pub fn loadOBJ(filename: []const u8, allocator: std.mem.Allocator, io: std.Io) !
 }
 
 fn getNextSurfaceTextureView(surface: wgpu.Surface) !?wgpu.TextureView {
-     const result = surface.getCurrentTexture();
+    const result = surface.getCurrentTexture();
 
-     const surface_texture = init: switch (result) {
-         .success => {
-             @branchHint(.likely);
-             break :init result.success;
-         },
-         .suboptimal => { break :init result.suboptimal; },
-         .timeout => { return null; },
-         else => {
-             @branchHint(.unlikely);
-             std.debug.panic("Got surface texture result: {}", .{result});
-         }
-     };
-
-     const view: wgpu.TextureView = try .init(
-         surface_texture.texture,
-         wgpu.TextureView.Descriptor{
-             .label = "Surface texture view",
-             .format = surface_texture.getFormat(),
-             .dimension = .@"2d",
-             .aspect = .all
-         }
-     );
-     return view;
-}
-
-fn onQueueWorkDone(
-    status: wgpu.c.WGPUQueueWorkDoneStatus,
-    message: wgpu.c.struct_WGPUStringView,
-    userdata1: ?*anyopaque,
-    userdata2: ?*anyopaque
-) callconv(.c) void {
-    _ = message; // autofix
-    _ = userdata1; // autofix
-    _ = userdata2; // autofix
-    std.log.info("Work done! Finished with status: {}", .{status});
-}
-
-fn printLimits(limits: wgpu.c.WGPULimits) void {
-    const fields = @typeInfo(@TypeOf(limits)).@"struct".fields;
-    inline for (fields) |f| {
-        const val = @field(limits, f.name);
-        if (@typeInfo(f.type) != .pointer) {
-            log.debug("{s}: {}", .{ f.name,  val});
-        } else {
-            log.debug("{s}: @{*}", .{ f.name,  val});
-        }
-    }
-}
-
-fn ceilToNextMultiple(value: usize, step: usize) usize {
-    const add: usize = if (value % step == 0) 0 else 1;
-    const divide_and_ceil: usize = value / step + add;
-    return step * divide_and_ceil;
-}
-
-// Matrix functions
-
-fn transpose(mat: Mat4x4) Mat4x4 {
-    return .{
-        mat[0], mat[4], mat[8], mat[12],
-        mat[1], mat[5], mat[9], mat[13],
-        mat[2], mat[6], mat[10], mat[14],
-        mat[3], mat[7], mat[11], mat[15],
+    const surface_texture = init: switch (result) {
+        .success => {
+            @branchHint(.likely);
+            break :init result.success;
+        },
+        .suboptimal => {
+            break :init result.suboptimal;
+        },
+        .timeout => {
+            return null;
+        },
+        else => {
+            @branchHint(.unlikely);
+            std.debug.panic("Got surface texture result: {}", .{result});
+        },
     };
-}
-
-/// -> m2 * m1
-fn multiplyMatrices(m1: Mat4x4, m2: Mat4x4) Mat4x4 {
-    var result: Mat4x4 = undefined;
-    var i: usize = 0;
-    while (i < 4) : (i += 1) {
-        var j: usize = 0;
-        while (j < 4) : (j += 1) {
-            result[i + 4 * j] =
-                m2[i + 0] * m1[0 + 4 * j] +
-                m2[i + 4] * m1[1 + 4 * j] +
-                m2[i + 8] * m1[2 + 4 * j] +
-                m2[i + 12] * m1[3 + 4 * j];
-        }
-    }
-    return result;
-}
-
-fn batchMatrixMultiply(mats: []const Mat4x4) Mat4x4 {
-    return blk: {
-        var temp: Mat4x4 = mats[0];
-        for (mats[1..]) |m| temp = multiplyMatrices(temp, m);
-        break :blk temp;
-    };
-}
-
-fn rotationMatrix(pitch: f32, yaw: f32, roll: f32) Mat4x4 {
-    const cr = @cos(roll);
-    const sr = @sin(roll);
-    const roll_tr = transpose(.{
-        cr, sr, 0, 0,
-        -sr, cr, 0, 0,
-        0, 0, 1, 0,
-        0, 0, 0, 1
-    });
-
-    const cy = @cos(yaw);
-    const sy = @sin(yaw);
-    const yaw_tr = transpose(.{
-        cy, 0, -sy, 0,
-        0, 1, 0, 0,
-        sy, 0, cy, 0,
-        0, 0, 0, 1
-    });
-
-    const cp = @cos(pitch);
-    const sp = @sin(pitch);
-    const pitch_tr = transpose(.{
-        1, 0, 0, 0,
-        0, cp, sp, 0,
-        0, -sp, cp, 0,
-        0, 0, 0, 1
-    });
-    return batchMatrixMultiply(&.{
-        roll_tr,
-        yaw_tr,
-        pitch_tr
-    });
-}
-
-fn printMatrix(mat: Mat4x4) void {
-    std.debug.print("{}, {}, {}, {}\n", .{mat[0], mat[4], mat[8], mat[12]});
-    std.debug.print("{}, {}, {}, {}\n", .{mat[1], mat[5], mat[9], mat[13]});
-    std.debug.print("{}, {}, {}, {}\n", .{mat[2], mat[6], mat[10], mat[14]});
-    std.debug.print("{}, {}, {}, {}\n", .{mat[3], mat[7], mat[11], mat[15]});
+    return try wgpu.TextureView.init(
+        surface_texture.texture,
+        wgpu.TextureView.Descriptor{
+            .label = "Surface texture view",
+            .format = surface_texture.getFormat(),
+            .dimension = .@"2d",
+            .aspect = .all
+        });
 }
 
 fn color(c: Color) wgpu.Color {
-    return .{
-        .r = c[0],
-        .g = c[1],
-        .b = c[2],
-        .a = 1
-    };
+    return .{ .r = c[0], .g = c[1], .b = c[2], .a = 1 };
 }
