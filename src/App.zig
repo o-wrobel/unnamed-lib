@@ -20,6 +20,15 @@ const Vec2f = math.Vec2f;
 const Vec3f = math.Vec3f;
 
 pub const Color = @Vector(3, f32);
+pub const Image = struct {
+    pixels: [][4]u8,
+    width: usize,
+    height: usize,
+
+    pub fn deinit(self: Image, allocator: std.mem.Allocator) void {
+        allocator.free(self.pixels);
+    }
+};
 
 const uniform_stride = 256;
 
@@ -65,7 +74,6 @@ index_count: u32,
 depth_texture: wgpu.Texture,
 depth_texture_view: wgpu.TextureView,
 
-pixel_image: [][4]u8,
 texture: wgpu.Texture,
 
 uniform_buffer: wgpu.Buffer,
@@ -97,7 +105,6 @@ pub fn init(model_filename: []const u8, allocator: std.mem.Allocator, io: std.Io
 
     const adapter = try instance.requestAdapterSync(.{});
     defer adapter.deinit();
-    // printLimits(try adapter.getLimits());
 
     const device = try adapter.requestDeviceSync(.{
         .label = "My cool device",
@@ -138,24 +145,15 @@ pub fn init(model_filename: []const u8, allocator: std.mem.Allocator, io: std.Io
         break :init surface;
     };
 
-    const texture = try device.createTexture(.{
-        .size = .{ .width = 256, .height = 256 },
-        .mip_level_count = 1,
-        .sample_count = 1,
-        .format = .rgba8_unorm,
-        .usage = .{
-            .copy_dst = true,
-            .texture_binding = true,
-        },
-        .label = "My cool texture",
-    });
+    // Texture creation
+    const image = try createImage(256, 256, allocator);
+    defer allocator.free(image.pixels);
+    const texture = try loadTexture(image, device);
     const texture_view = try texture.createView(.{
         .aspect = .all,
         .dimension = .@"2d",
         .format = texture.getFormat(),
     });
-    const pixels = try textureImage(texture.getWidth(), texture.getHeight(), allocator);
-
     const sampler = try device.createSampler(.{
         .label = "My sampler",
 
@@ -353,7 +351,7 @@ pub fn init(model_filename: []const u8, allocator: std.mem.Allocator, io: std.Io
     queue.writeTexture(
         [4]u8,
         destination,
-        pixels,
+        image.pixels,
         .{
             .bytes_per_row = 4 * texture.getWidth(),
             .rows_per_image = texture.getHeight(),
@@ -380,14 +378,13 @@ pub fn init(model_filename: []const u8, allocator: std.mem.Allocator, io: std.Io
         .depth_texture = depth_texture,
         .depth_texture_view = depth_texture_view,
 
-        .pixel_image = pixels,
         .texture = texture,
 
         .uniform_buffer = uniform_buffer,
     };
 }
 
-pub fn deinit(self: App, allocator: std.mem.Allocator) void {
+pub fn deinit(self: App) void {
     log.info("Deinitializing", .{});
     self.device.deinit();
     self.queue.deinit();
@@ -395,8 +392,6 @@ pub fn deinit(self: App, allocator: std.mem.Allocator) void {
     self.window.destroy();
     self.bind_group.deinit();
     self.render_pipeline.deinit();
-
-    allocator.free(self.pixel_image);
 
     self.vertex_buffer.deinit();
     self.uniform_buffer.deinit();
@@ -434,7 +429,6 @@ pub fn mainLoop(self: *const App) !void {
             .projection_transform = projection_transform,
         };
         self.queue.writeBuffer(MyUniform, self.uniform_buffer, 0, &.{uniform1});
-        // self.queue.writeBuffer(MyUniform, self.uniform_buffer, uniform_stride, &.{ uniform2 });
 
         const target_view = try getNextSurfaceTextureView(self.surface) orelse continue;
         const encoder = try self.device.createCommandEncoder(.{ .label = "My command encoder" });
@@ -482,24 +476,36 @@ pub fn mainLoop(self: *const App) !void {
 
 // Utility functions
 
-fn textureImage(width: usize, height: usize, allocator: std.mem.Allocator) ![][4]u8 {
-    return init: {
-        const pixels = try allocator.alloc([4]u8, width * height);
-        for (0..width) |i| {
-            for (0..height) |j| {
-                const i_s: i32 = @intCast(i);
-                const j_s: i32 = @intCast(j);
+fn createImage(width: usize, height: usize, allocator: std.mem.Allocator) !Image {
+    const pixels = try allocator.alloc([4]u8, width * height);
+    for (0..width) |i| {
+        for (0..height) |j| {
+            const i_s: i32 = @intCast(i);
+            const j_s: i32 = @intCast(j);
 
-                const red: u8 = if (@mod((@divTrunc(i_s, 16)), 2) == @mod((@divTrunc(j_s, 16)), 2)) 255 else 0;
-                const green: u8 = if (@mod((@divTrunc(i_s - j_s, 16)), 2) == 0) 255 else 0;
-                const blue: u8 = if (@mod((@divTrunc(i_s + j_s, 16)), 2) == 0) 255 else 0;
-                const alpha: u8 = 255;
+            const red: u8 = if (@mod((@divTrunc(i_s, 16)), 2) == @mod((@divTrunc(j_s, 16)), 2)) 255 else 0;
+            const green: u8 = if (@mod((@divTrunc(i_s - j_s, 16)), 2) == 0) 255 else 0;
+            const blue: u8 = if (@mod((@divTrunc(i_s + j_s, 16)), 2) == 0) 255 else 0;
+            const alpha: u8 = 255;
 
-                pixels[j * width + i] = .{ red, green, blue, alpha };
-            }
+            pixels[j * width + i] = .{ red, green, blue, alpha };
         }
-        break :init pixels;
-    };
+    }
+    return .{ .pixels = pixels, .width = width, .height = height };
+}
+
+fn loadTexture(image: Image, device: wgpu.Device) !wgpu.Texture {
+    return try device.createTexture(.{
+        .size = .{ .width = @intCast(image.width), .height = @intCast(image.height) },
+        .mip_level_count = 1,
+        .sample_count = 1,
+        .format = .rgba8_unorm,
+        .usage = .{
+            .copy_dst = true,
+            .texture_binding = true,
+        },
+        .label = "My cool texture",
+    });
 }
 
 pub fn loadOBJ(filename: []const u8, allocator: std.mem.Allocator, io: std.Io) ![]Vertex {
