@@ -154,8 +154,25 @@ pub fn init(model_filename: []const u8, allocator: std.mem.Allocator, io: std.Io
         .dimension = .@"2d",
         .format = texture.getFormat(),
     });
-
     const pixels = try textureImage(texture.getWidth(), texture.getHeight(), allocator);
+
+    const sampler = try device.createSampler(.{
+        .label = "My sampler",
+
+        // Address modes specify how the texture is
+        // supposed to be displayed out of its bounds
+        .address_mode_u = .clamp_to_edge,
+        .address_mode_v = .clamp_to_edge,
+        .address_mode_w = .clamp_to_edge,
+
+        .mag_filter = .linear,
+        .min_filter = .linear,
+        .mipmap_filter = .linear,
+        .lod_min_clamp = 0,
+        .lod_max_clamp = 1,
+        .compare = .undefined,
+        .max_anisotropy = 1,
+    });
 
     // Loading shader
     log.info("Loading shader", .{});
@@ -181,6 +198,8 @@ pub fn init(model_filename: []const u8, allocator: std.mem.Allocator, io: std.Io
         break :init uniform_buffer;
     };
 
+    // Binding
+
     const uniform_binding_layout: wgpu.BindGroupLayout.Entry = .{
         .binding = 0,
         .visibility = .{ .vertex = true },
@@ -195,8 +214,17 @@ pub fn init(model_filename: []const u8, allocator: std.mem.Allocator, io: std.Io
         .visibility = .{ .fragment = true },
         .texture = .{ .sample_type = .float, .view_dimension = .@"2d" },
     };
+    const sampler_binding_layout: wgpu.BindGroupLayout.Entry = .{
+        .binding = 2,
+        .visibility = .{ .fragment = true },
+        .sampler = .{ .binding_type = .filtering },
+    };
     const bind_group_layout = try device.createBindGroupLayout(.{
-        .entries = &.{ uniform_binding_layout, texture_binding_layout },
+        .entries = &.{
+            uniform_binding_layout,
+            texture_binding_layout,
+            sampler_binding_layout,
+        },
     });
 
     const bind_group = init: {
@@ -210,10 +238,18 @@ pub fn init(model_filename: []const u8, allocator: std.mem.Allocator, io: std.Io
             .binding = 1,
             .texture_view = texture_view,
         };
+        const sampler_binding: wgpu.BindGroup.Entry = .{
+            .binding = 2,
+            .sampler = sampler,
+        };
         break :init try device.createBindGroup(.{
             .label = "My bind group",
             .layout = bind_group_layout,
-            .entries = &.{ uniform_binding, texture_binding },
+            .entries = &.{
+                uniform_binding,
+                texture_binding,
+                sampler_binding,
+            },
         });
     };
 
