@@ -148,12 +148,22 @@ pub fn init(model_filename: []const u8, allocator: std.mem.Allocator, io: std.Io
     // Texture creation
     const image = try createImage(256, 256, allocator);
     defer allocator.free(image.pixels);
-    const texture = try loadTexture(image, device);
-    const texture_view = try texture.createView(.{
-        .aspect = .all,
-        .dimension = .@"2d",
-        .format = texture.getFormat(),
+    const mip_level_count: u32 = 8;
+    const texture = try device.createTexture(.{
+        .size = .{
+            .width = @intCast(image.width),
+            .height = @intCast(image.height),
+        },
+        .mip_level_count = mip_level_count,
+        .sample_count = 1,
+        .format = .rgba8_unorm,
+        .usage = .{
+            .copy_dst = true,
+            .texture_binding = true,
+        },
+        .label = "My cool texture",
     });
+    const texture_view = try texture.createView(.{ .aspect = .all, .dimension = .@"2d", .format = texture.getFormat(), .mip_level_count = mip_level_count });
     const sampler = try device.createSampler(.{
         .label = "My sampler",
 
@@ -167,7 +177,7 @@ pub fn init(model_filename: []const u8, allocator: std.mem.Allocator, io: std.Io
         .min_filter = .linear,
         .mipmap_filter = .linear,
         .lod_min_clamp = 0,
-        .lod_max_clamp = 1,
+        .lod_max_clamp = mip_level_count,
         .compare = .undefined,
         .max_anisotropy = 1,
     });
@@ -344,23 +354,31 @@ pub fn init(model_filename: []const u8, allocator: std.mem.Allocator, io: std.Io
         .format = .depth24_plus,
     });
 
-    const destination: wgpu.Queue.TexelCopyTextureInfo = .{
-        .texture = texture,
-        .aspect = .all,
-    };
-    queue.writeTexture(
-        [4]u8,
-        destination,
-        image.pixels,
-        .{
-            .bytes_per_row = 4 * texture.getWidth(),
-            .rows_per_image = texture.getHeight(),
-        },
-        .{
-            .width = texture.getWidth(),
-            .height = texture.getHeight(),
-        },
-    );
+    // Create and upload texture data, one mip level at a time
+    for (0..mip_level_count) |level| {
+        const destination: wgpu.Queue.TexelCopyTextureInfo = .{
+            .texture = texture,
+            .aspect = .all,
+            .mip_level = @intCast(level),
+        };
+        const mip_level_size: wgpu.types.Extent3D = .{
+            .width = texture.getWidth() / std.math.pow(u32, 2, @intCast(level)),
+            .height = texture.getHeight() / std.math.pow(u32, 2, @intCast(level)),
+        };
+        const source: wgpu.types.TexelCopyBufferLayout = .{
+            .bytes_per_row = 4 * mip_level_size.width,
+            .rows_per_image = mip_level_size.height,
+        };
+        const image_to_upload = if (level == 0) image else try createMipMap(image, level, allocator);
+        defer if (level != 0) image_to_upload.deinit(allocator);
+        queue.writeTexture(
+            [4]u8,
+            destination,
+            image_to_upload.pixels,
+            source,
+            mip_level_size,
+        );
+    }
 
     return .{
         .window = window,
@@ -494,18 +512,22 @@ fn createImage(width: usize, height: usize, allocator: std.mem.Allocator) !Image
     return .{ .pixels = pixels, .width = width, .height = height };
 }
 
-fn loadTexture(image: Image, device: wgpu.Device) !wgpu.Texture {
-    return try device.createTexture(.{
-        .size = .{ .width = @intCast(image.width), .height = @intCast(image.height) },
-        .mip_level_count = 1,
-        .sample_count = 1,
-        .format = .rgba8_unorm,
-        .usage = .{
-            .copy_dst = true,
-            .texture_binding = true,
-        },
-        .label = "My cool texture",
-    });
+fn createMipMap(previous_image: Image, mip_level_: usize, allocator: std.mem.Allocator) !Image {
+    const width = previous_image.width;
+    const height = previous_image.height;
+
+    const pixels = try allocator.alloc([4]u8, width * height);
+    for (0..width) |i| {
+        for (0..height) |j| {
+            const red: u8 = if (@mod(mip_level_, 2) == 0) 255 else 0;
+            const green: u8 = if (@mod(mip_level_ / 2, 2) == 0) 255 else 0;
+            const blue: u8 = if (@mod(mip_level_ / 4, 2) == 0) 255 else 0;
+            const alpha: u8 = 255;
+
+            pixels[j * width + i] = .{ red, green, blue, alpha };
+        }
+    }
+    return .{ .pixels = pixels, .width = width, .height = height };
 }
 
 pub fn loadOBJ(filename: []const u8, allocator: std.mem.Allocator, io: std.Io) ![]Vertex {
