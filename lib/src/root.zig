@@ -30,6 +30,8 @@ pub const Image = struct {
     }
 };
 
+const default_shader_data = @embedFile("default.wgsl");
+
 const uniform_stride = 256;
 
 pub const Vertex = struct {
@@ -187,15 +189,7 @@ pub fn init(model_filename: []const u8, allocator: std.mem.Allocator, io: std.Io
 
     // Loading shader
     log.info("Loading shader", .{});
-    const shader_module: wgpu.ShaderModule = init: {
-        const shader_file = try std.Io.Dir.cwd().openFile(io, "src/my_shader.wgsl", .{});
-        const sf_length = shader_file.length(io) catch unreachable;
-        var sf_reader = shader_file.reader(io, &.{});
-        const shader_text = try sf_reader.interface.allocRemaining(allocator, .limited64(sf_length + 1));
-        defer allocator.free(shader_text);
-        const shader_source: wgpu.ShaderSource = .{ .wgsl = shader_text };
-        break :init try .init(device.device, shader_source);
-    };
+    const shader_module: wgpu.ShaderModule = try .init(device.device, .{ .wgsl = default_shader_data });
 
     const uniform_buffer = init: {
         // const min_alignment = (try adapter.getLimits()).minUniformBufferOffsetAlignment;
