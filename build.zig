@@ -14,8 +14,8 @@ pub fn build(b: *std.Build) void {
     const tinyobj_dep = b.dependency("tinyobjloader", .{});
     const tinyobjloader = tinyobj_dep.module("tinyobjloader");
 
-    const app_mod = b.createModule(.{
-        .root_source_file = b.path("src/App.zig"),
+    const root = b.createModule(.{
+        .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
         .link_libc = true,
@@ -25,14 +25,14 @@ pub fn build(b: *std.Build) void {
             .{ .module = tinyobjloader, .name = "tinyobj" },
         },
     });
-    app_mod.linkLibrary(glfw_lib);
+    root.linkLibrary(glfw_lib);
 
     // On NixOS, X11/Wayland are not in default linker paths.
     // Add them from the LIBRARY_PATH env var set in flake.nix.
     if (b.graph.environ_map.get("LIBRARY_PATH")) |lib_path| {
         var it = std.mem.splitScalar(u8, lib_path, ':');
         while (it.next()) |dir| {
-            app_mod.addLibraryPath(.{ .cwd_relative = dir });
+            root.addLibraryPath(.{ .cwd_relative = dir });
         }
     }
 
@@ -44,7 +44,7 @@ pub fn build(b: *std.Build) void {
         .imports = &.{
             .{ .module = wgpu, .name = "wgpu" },
             .{ .module = glfw, .name = "glfw" },
-            .{ .module = app_mod, .name = "App" },
+            .{ .module = root, .name = "engine" },
         },
     });
     exe_mod.linkLibrary(glfw_lib);

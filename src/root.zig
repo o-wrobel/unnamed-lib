@@ -13,11 +13,11 @@ const ortho_projection = math.ortho_projection;
 const transpose = math.transpose;
 const rotationMatrix = math.rotationMatrix;
 const batchMatrixMultiply = math.batchMatrixMultiply;
-const modelTransform = math.modelTransform;
-const viewTransform = math.viewTransform;
-const projectionTransform = math.projectionTransform;
-const Vec2f = math.Vec2f;
-const Vec3f = math.Vec3f;
+pub const modelTransform = math.modelTransform;
+pub const viewTransform = math.viewTransform;
+pub const projectionTransform = math.projectionTransform;
+pub const Vec2f = math.Vec2f;
+pub const Vec3f = math.Vec3f;
 
 pub const Color = @Vector(3, f32);
 pub const Image = struct {
@@ -43,7 +43,7 @@ pub const Vertex = struct {
     uv: Vec2f,
 };
 
-const MyUniform = struct {
+pub const MyUniform = struct {
     model_tranform: Mat4x4 = identity_matrix,
     view_transform: Mat4x4 = identity_matrix,
     projection_transform: Mat4x4 = identity_matrix,
@@ -77,6 +77,9 @@ depth_texture_view: wgpu.TextureView,
 texture: wgpu.Texture,
 
 uniform_buffer: wgpu.Buffer,
+
+should_close: bool = false,
+delta_time: f32 = 0,
 
 pub fn init(model_filename: []const u8, allocator: std.mem.Allocator, io: std.Io) !App {
     log.info("Initializing", .{});
@@ -424,81 +427,54 @@ pub fn deinit(self: App) void {
     self.uniform_buffer.deinit();
 }
 
-pub fn mainLoop(self: *const App) !void {
-    log.info("Executing main loop", .{});
-    while (true) {
-        glfw.pollEvents();
-        if (glfw.windowShouldClose(self.window)) break;
-        const time: f32 = @floatCast(glfw.getTime());
+pub fn tick(self: *App, uniform: MyUniform) !void {
+    glfw.pollEvents();
+    self.should_close = glfw.windowShouldClose(self.window);
+    self.delta_time = @floatCast(glfw.getTime());
 
-        const model_transform = modelTransform(
-            0.3,
-            .{ 0, 0, 0 },
-            .{ .roll = time },
-        );
-        const view_transform = viewTransform(
-            .{ 0, 0, -1 },
-            .{ .pitch = std.math.degreesToRadians(115) },
-        );
-        const projection_transform = projectionTransform(
-            640.0 / 480.0,
-            std.math.degreesToRadians(60),
-        );
+    self.queue.writeBuffer(MyUniform, self.uniform_buffer, 0, &.{uniform});
 
-        // const model_transform = identity_matrix;
-        // const view_transform = identity_matrix;
-        // const projection_transform = ortho_projection;
+    const target_view = try getNextSurfaceTextureView(self.surface) orelse unreachable;
+    const encoder = try self.device.createCommandEncoder(.{ .label = "My command encoder" });
+    defer encoder.deinit();
 
-        const uniform1: MyUniform = .{
-            .time = time,
-            .model_tranform = model_transform,
-            .view_transform = view_transform,
-            .projection_transform = projection_transform,
-        };
-        self.queue.writeBuffer(MyUniform, self.uniform_buffer, 0, &.{uniform1});
+    const color_attachment: wgpu.RenderPassEncoder.ColorAttachment = .{
+        .view = target_view,
+        .clear_value = color(background_color),
+        .load_op = .clear,
+        .store_op = .store,
+    };
 
-        const target_view = try getNextSurfaceTextureView(self.surface) orelse continue;
-        const encoder = try self.device.createCommandEncoder(.{ .label = "My command encoder" });
-        defer encoder.deinit();
+    const render_pass = try encoder.beginRenderPass(.{
+        .color_attachments = &.{color_attachment},
+        .label = "My render pass",
+        .depth_stencil_attachment = .{
+            .view = self.depth_texture_view,
+            .depth_clear_value = 1,
+            .depth_load_op = .clear,
+            .depth_store_op = .store,
+            .depth_read_only = false,
+        },
+    });
 
-        const color_attachment: wgpu.RenderPassEncoder.ColorAttachment = .{
-            .view = target_view,
-            .clear_value = color(background_color),
-            .load_op = .clear,
-            .store_op = .store,
-        };
+    render_pass.setPipeline(self.render_pipeline);
 
-        const render_pass = try encoder.beginRenderPass(.{
-            .color_attachments = &.{color_attachment},
-            .label = "My render pass",
-            .depth_stencil_attachment = .{
-                .view = self.depth_texture_view,
-                .depth_clear_value = 1,
-                .depth_load_op = .clear,
-                .depth_store_op = .store,
-                .depth_read_only = false,
-            },
-        });
+    render_pass.setVertexBuffer(0, self.vertex_buffer, 0, self.vertex_buffer.size);
 
-        render_pass.setPipeline(self.render_pipeline);
+    render_pass.setBindGroup(0, self.bind_group, &.{0});
+    render_pass.draw(self.vertex_count, 1, 0, 0);
 
-        render_pass.setVertexBuffer(0, self.vertex_buffer, 0, self.vertex_buffer.size);
+    render_pass.end();
+    render_pass.deinit();
 
-        render_pass.setBindGroup(0, self.bind_group, &.{0});
-        render_pass.draw(self.vertex_count, 1, 0, 0);
+    const command = try encoder.finish(.{ .label = "Command buffer" });
 
-        render_pass.end();
-        render_pass.deinit();
+    self.queue.submitCommands(&.{command});
 
-        const command = try encoder.finish(.{ .label = "Command buffer" });
+    try self.surface.present();
 
-        self.queue.submitCommands(&.{command});
-
-        try self.surface.present();
-
-        target_view.deinit();
-        _ = self.device.poll(false);
-    }
+    target_view.deinit();
+    _ = self.device.poll(false);
 }
 
 // Utility functions
