@@ -35,14 +35,11 @@ const default_shader_data = @embedFile("default.wgsl");
 const uniform_stride = 256;
 
 pub const Vertex = struct {
-    const pos_format: wgpu.RenderPipeline.VertexFormat = .float32x3;
-    const norm_format: wgpu.RenderPipeline.VertexFormat = .float32x3;
-    const col_format: wgpu.RenderPipeline.VertexFormat = .float32x3;
-    const uv_format: wgpu.RenderPipeline.VertexFormat = .float32x2;
     position: Vec3f,
     normal: Vec3f,
     color: Color,
     uv: Vec2f,
+    pub const buffer_layout = bufferLayout(@This());
 };
 
 pub const MyUniform = struct {
@@ -271,36 +268,6 @@ pub fn init(model_filename: []const u8, allocator: std.mem.Allocator, io: std.Io
             .write_mask = .all,
         };
 
-        const position_attribute: wgpu.RenderPipeline.VertexAttribute = .{
-            .shader_location = 0,
-            .format = Vertex.pos_format,
-            .offset = 0,
-        };
-        const normal_attribute: wgpu.RenderPipeline.VertexAttribute = .{
-            .shader_location = 1,
-            .format = Vertex.norm_format,
-            .offset = 1 * @sizeOf(Vec3f),
-        };
-        const color_attribute: wgpu.RenderPipeline.VertexAttribute = .{
-            .shader_location = 2,
-            .format = Vertex.col_format,
-            .offset = 2 * @sizeOf(Vec3f),
-        };
-        const uv_attribute: wgpu.RenderPipeline.VertexAttribute = .{
-            .shader_location = 3,
-            .format = Vertex.uv_format,
-            .offset = 3 * @sizeOf(Vec3f),
-        };
-        const vertex_buffer_layout: wgpu.RenderPipeline.VertexBufferLayout = .{
-            .array_stride = @sizeOf(Vertex),
-            .attributes = &.{
-                position_attribute,
-                normal_attribute,
-                color_attribute,
-                uv_attribute,
-            },
-        };
-
         const layout = try device.createPipelineLayout("My pipeline layout", &.{bind_group_layout}, 0);
 
         break :init try device.createRenderPipeline(.{
@@ -314,7 +281,7 @@ pub fn init(model_filename: []const u8, allocator: std.mem.Allocator, io: std.Io
             .vertex = .{
                 .module = shader_module,
                 .entry_point = "vs_main",
-                .buffers = &.{vertex_buffer_layout},
+                .buffers = &.{Vertex.buffer_layout},
             },
             .fragment = .{
                 .module = shader_module,
@@ -477,6 +444,52 @@ pub fn tick(self: *Device, uniform: MyUniform) !void {
 }
 
 // Utility functions
+
+pub fn bufferLayout(comptime T: type) wgpu.RenderPipeline.VertexBufferLayout {
+    const ti = @typeInfo(T);
+    const s = ti.@"struct";
+    const types = s.field_types;
+    const attributes: [types.len]wgpu.RenderPipeline.VertexAttribute = blk: {
+        var result: [types.len]wgpu.RenderPipeline.VertexAttribute = undefined;
+        var offset: u32 = 0;
+        var location: u32 = 0;
+        for (types) |K| {
+            const format = formatFromType(K);
+            const size = @sizeOf(K);
+            result[location] = .{
+                .format = format,
+                .offset = offset,
+                .shader_location = location,
+            };
+            offset += size;
+            location += 1;
+        }
+        break :blk result;
+    };
+    return .{
+        .attributes = &attributes,
+        .array_stride = @sizeOf(T),
+    };
+}
+
+fn formatFromType(comptime T: type) wgpu.RenderPipeline.VertexFormat {
+    var type_name: []const u8 = undefined;
+    var type_size_bits: u32 = undefined;
+    return switch (@typeInfo(T)) {
+        .vector => |V| blk: {
+            switch (@typeInfo(V.child)) {
+                .float => |F| {
+                    type_name = "float";
+                    type_size_bits = F.bits;
+                },
+                else => @compileError("Unimplemented for non-float vectors"),
+            }
+            const format_name = std.fmt.comptimePrint("{s}{d}x{d}", .{ type_name, type_size_bits, V.len });
+            break :blk @field(wgpu.RenderPipeline.VertexFormat, format_name);
+        },
+        else => @compileError("Unimplemented for non-float vectors"),
+    };
+}
 
 fn createImage(width: usize, height: usize, allocator: std.mem.Allocator) !Image {
     const pixels = try allocator.alloc([4]u8, width * height);
