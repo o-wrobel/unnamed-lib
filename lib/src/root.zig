@@ -57,7 +57,7 @@ const window_width = 640;
 const window_height = 480;
 const background_color: Color = .{ 0.1, 0.1, 0.1 };
 
-pub const App = @This();
+pub const Device = @This();
 
 const log = std.log.scoped(.App);
 
@@ -83,7 +83,7 @@ uniform_buffer: wgpu.Buffer,
 should_close: bool = false,
 delta_time: f32 = 0,
 
-pub fn init(model_filename: []const u8, allocator: std.mem.Allocator, io: std.Io) !App {
+pub fn init(model_filename: []const u8, allocator: std.mem.Allocator, io: std.Io) !Device {
     log.info("Initializing", .{});
 
     log.info("Loading model file \"{s}\"", .{model_filename});
@@ -168,7 +168,12 @@ pub fn init(model_filename: []const u8, allocator: std.mem.Allocator, io: std.Io
         },
         .label = "My cool texture",
     });
-    const texture_view = try texture.createView(.{ .aspect = .all, .dimension = .@"2d", .format = texture.getFormat(), .mip_level_count = mip_level_count });
+    const texture_view = try texture.createView(.{
+        .aspect = .all,
+        .dimension = .@"2d",
+        .format = texture.getFormat(),
+        .mip_level_count = mip_level_count,
+    });
     const sampler = try device.createSampler(.{
         .label = "My sampler",
 
@@ -408,7 +413,7 @@ pub fn init(model_filename: []const u8, allocator: std.mem.Allocator, io: std.Io
     };
 }
 
-pub fn deinit(self: App) void {
+pub fn deinit(self: Device) void {
     log.info("Deinitializing", .{});
     self.device.deinit();
     self.queue.deinit();
@@ -421,7 +426,7 @@ pub fn deinit(self: App) void {
     self.uniform_buffer.deinit();
 }
 
-pub fn tick(self: *App, uniform: MyUniform) !void {
+pub fn tick(self: *Device, uniform: MyUniform) !void {
     glfw.pollEvents();
     self.should_close = glfw.windowShouldClose(self.window);
     self.delta_time = @floatCast(glfw.getTime());
