@@ -6,6 +6,7 @@ const obj = @import("tinyobj");
 const Scene = obj.Scene;
 const wgpu = @import("wgpu");
 
+pub const Input = @import("Input.zig");
 pub const math = @import("math.zig");
 const Mat4x4 = math.Mat4x4;
 const identity_matrix = math.identity_matrix;
@@ -18,8 +19,6 @@ pub const viewTransform = math.viewTransform;
 pub const projectionTransform = math.projectionTransform;
 pub const Vec2f = math.Vec2f;
 pub const Vec3f = math.Vec3f;
-
-pub const Input = @import("Input.zig");
 
 pub const Color = @Vector(3, f32);
 pub const Image = struct {
@@ -57,7 +56,6 @@ const window_height = 480;
 const background_color: Color = .{ 0.1, 0.1, 0.1 };
 
 pub const Device = @This();
-
 const log = std.log.scoped(.App);
 
 window: *Window,
@@ -87,7 +85,12 @@ fn callbackFunction() void {
     std.debug.print("Pressed space!\n", .{});
 }
 
-pub fn init(model_filename: []const u8, allocator: std.mem.Allocator, io: std.Io) !Device {
+pub fn init(
+    model_filename: []const u8,
+    comptime input_options: Input.Options,
+    allocator: std.mem.Allocator,
+    io: std.Io,
+) !Device {
     log.info("Initializing", .{});
 
     log.info("Loading model file \"{s}\"", .{model_filename});
@@ -108,10 +111,7 @@ pub fn init(model_filename: []const u8, allocator: std.mem.Allocator, io: std.Io
         null,
     );
 
-    const press_callbacks = comptime Input.CallbackMap.init(.{
-        .space = &callbackFunction,
-    });
-    const input = try Input.init(.{ .press_callbacks = press_callbacks }, window);
+    const input = try Input.init(input_options, window);
 
     // WGPU
     const instance = try wgpu.Instance.init(null);

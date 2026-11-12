@@ -15,12 +15,12 @@ release_callbacks: CallbackMap,
 
 const log = std.log.scoped(.Input);
 
-pub const InputOptions = struct {
+pub const Options = struct {
     press_callbacks: CallbackMap = .empty,
     release_callbacks: CallbackMap = .empty,
 };
 
-pub fn init(comptime options: InputOptions, window: *Window) !Input {
+pub fn init(comptime options: Options, window: *Window) !Input {
     const gen = struct {
         fn key_callback(
             _: *Window,
