@@ -83,28 +83,34 @@ should_close: bool = false,
 time: f32 = 0,
 delta_time: f32 = 0,
 
-fn callbackFunction() void {
-    std.debug.print("Pressed space!\n", .{});
-}
-
 pub fn init(
     model_filename: []const u8,
     comptime input_options: Input.Options,
     allocator: std.mem.Allocator,
     io: std.Io,
 ) !Device {
-    log.info("Initializing", .{});
+    const parent_progress_node = std.Progress.start(io, .{ .root_name = "Initializing" });
+    defer parent_progress_node.end();
+    defer log.info("Initialization finished", .{});
 
-    log.info("Loading model file \"{s}\"", .{model_filename});
+    const model_loading_node = parent_progress_node.start("Loading model", 0);
     const vertices = try loadOBJ(model_filename, allocator, io);
     defer allocator.free(vertices);
+    model_loading_node.end();
+    log.info("Model loaded: \x1B[34m{s}", .{model_filename});
+
+    const image_node = parent_progress_node.start("Creating image", 0);
+    const image = try createImage(256, 256, allocator);
+    defer allocator.free(image.pixels);
+    image_node.end();
+    log.info("Image created", .{});
 
     // GLFW
+    const window_node = parent_progress_node.start("Creating window", 2);
     try glfw.init();
-
+    window_node.completeOne();
     glfw.windowHint(.client_api, .no_api);
     glfw.windowHint(.resizable, false);
-    log.info("Creating window", .{});
     const window: *Window = try .create(
         window_width,
         window_height,
@@ -112,23 +118,30 @@ pub fn init(
         null,
         null,
     );
+    window_node.end();
+    log.info("Window created", .{});
 
     const input = try Input.init(input_options, window);
 
     // WGPU
+    const wgpu_node = parent_progress_node.start("Setting up WebGPU", 0);
     const instance = try wgpu.Instance.init(null);
     defer instance.deinit();
+    wgpu_node.completeOne();
 
     const adapter = try instance.requestAdapterSync(.{});
     defer adapter.deinit();
+    wgpu_node.completeOne();
 
     const device = try adapter.requestDeviceSync(.{
         .label = "My cool device",
         .queue_label = "Default queue",
     });
     // TODO: Set up callback functions
+    wgpu_node.completeOne();
 
     const queue = try device.getQueue();
+    wgpu_node.completeOne();
 
     const surface = init: {
         // Get native window handle and create a wgpu surface
@@ -160,10 +173,13 @@ pub fn init(
         });
         break :init surface;
     };
+    wgpu_node.completeOne();
 
-    // Texture creation
-    const image = try createImage(256, 256, allocator);
-    defer allocator.free(image.pixels);
+    const shader_module: wgpu.ShaderModule = try .init(device.device, .{ .wgsl = default_shader_data });
+    wgpu_node.completeOne();
+    log.info("Default shader loaded", .{});
+
+    const texture_node = wgpu_node.start("Setting up textures", 4);
     const mip_level_count: u32 = 8;
     const texture = try device.createTexture(.{
         .size = .{
@@ -179,12 +195,14 @@ pub fn init(
         },
         .label = "My cool texture",
     });
+    texture_node.completeOne();
     const texture_view = try texture.createView(.{
         .aspect = .all,
         .dimension = .@"2d",
         .format = texture.getFormat(),
         .mip_level_count = mip_level_count,
     });
+    texture_node.completeOne();
     const sampler = try device.createSampler(.{
         .label = "My sampler",
 
@@ -202,10 +220,27 @@ pub fn init(
         .compare = .undefined,
         .max_anisotropy = 1,
     });
+    texture_node.completeOne();
+    texture_node.end();
+    wgpu_node.completeOne();
+    log.info("Texture created", .{});
 
-    // Loading shader
-    log.info("Loading shader", .{});
-    const shader_module: wgpu.ShaderModule = try .init(device.device, .{ .wgsl = default_shader_data });
+    const depth_texture = try device.createTexture(.{
+        .usage = .{ .render_attachment = true },
+        .dimension = .@"2d",
+        .format = .depth24_plus,
+        .size = .{
+            .width = window_width,
+            .height = window_height,
+        },
+    });
+    const depth_texture_view = try depth_texture.createView(.{
+        .aspect = .depth_only,
+        .dimension = .@"2d",
+        .format = .depth24_plus,
+    });
+    wgpu_node.completeOne();
+    log.info("Depth texture created", .{});
 
     const uniform_buffer = init: {
         // const min_alignment = (try adapter.getLimits()).minUniformBufferOffsetAlignment;
@@ -273,6 +308,8 @@ pub fn init(
             },
         });
     };
+    wgpu_node.completeOne();
+    log.info("Bind group created", .{});
 
     const render_pipeline = init: {
         const blend_state: wgpu.RenderPipeline.BlendState = .{};
@@ -312,6 +349,8 @@ pub fn init(
             },
         });
     };
+    wgpu_node.completeOne();
+    log.info("Render pipeline created", .{});
 
     const vertex_buffer, const vertex_count: u32 = init: {
         const vertex_buffer = try device.createBuffer(.{
@@ -321,21 +360,8 @@ pub fn init(
         queue.writeBuffer(Vertex, vertex_buffer, 0, vertices);
         break :init .{ vertex_buffer, @intCast(vertices.len) };
     };
-
-    const depth_texture = try device.createTexture(.{
-        .usage = .{ .render_attachment = true },
-        .dimension = .@"2d",
-        .format = .depth24_plus,
-        .size = .{
-            .width = window_width,
-            .height = window_height,
-        },
-    });
-    const depth_texture_view = try depth_texture.createView(.{
-        .aspect = .depth_only,
-        .dimension = .@"2d",
-        .format = .depth24_plus,
-    });
+    wgpu_node.completeOne();
+    log.info("Vertex buffer created", .{});
 
     // Create and upload texture data, one mip level at a time. Each mip level
     // is generated by downsampling the previous one, which is what
@@ -371,6 +397,9 @@ pub fn init(
         }
     }
     if (mip_level_count > 1) previous_image.deinit(allocator);
+    wgpu_node.completeOne();
+    log.info("Mip maps created", .{});
+    wgpu_node.end();
 
     return .{
         .window = window,
