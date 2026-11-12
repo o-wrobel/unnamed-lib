@@ -19,6 +19,8 @@ pub const projectionTransform = math.projectionTransform;
 pub const Vec2f = math.Vec2f;
 pub const Vec3f = math.Vec3f;
 
+pub const Input = @import("Input.zig");
+
 pub const Color = @Vector(3, f32);
 pub const Image = struct {
     pixels: [][4]u8,
@@ -77,8 +79,13 @@ texture: wgpu.Texture,
 
 uniform_buffer: wgpu.Buffer,
 
+input: Input,
 should_close: bool = false,
 delta_time: f32 = 0,
+
+fn callbackFunction() void {
+    std.debug.print("Pressed space!\n", .{});
+}
 
 pub fn init(model_filename: []const u8, allocator: std.mem.Allocator, io: std.Io) !Device {
     log.info("Initializing", .{});
@@ -100,6 +107,11 @@ pub fn init(model_filename: []const u8, allocator: std.mem.Allocator, io: std.Io
         null,
         null,
     );
+
+    const press_callbacks = comptime Input.CallbackMap.init(.{
+        .space = &callbackFunction,
+    });
+    const input = try Input.init(.{ .press_callbacks = press_callbacks }, window);
 
     // WGPU
     const instance = try wgpu.Instance.init(null);
@@ -365,18 +377,14 @@ pub fn init(model_filename: []const u8, allocator: std.mem.Allocator, io: std.Io
         .surface = surface,
         .bind_group = bind_group,
         .render_pipeline = render_pipeline,
-
         .vertex_buffer = vertex_buffer,
         .vertex_count = vertex_count,
-
         .index_count = @intCast(vertices.len),
-
         .depth_texture = depth_texture,
         .depth_texture_view = depth_texture_view,
-
         .texture = texture,
-
         .uniform_buffer = uniform_buffer,
+        .input = input,
     };
 }
 
