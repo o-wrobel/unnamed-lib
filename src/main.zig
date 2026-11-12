@@ -21,17 +21,23 @@ pub fn main(init: std.process.Init) !void {
     defer device.deinit();
     const input = device.input;
 
-    var temp: f32 = 0;
+    const camera_rotate_speed = 4;
+    var model_pitch: f32 = 0;
+    var model_roll: f32 = 0;
     while (!device.should_close) {
-        if (input.held(.up)) temp += 0.01;
-        if (input.held(.down)) temp -= 0.01;
+        const dt = device.delta_time;
+        if (input.held(.up)) model_pitch += camera_rotate_speed * dt;
+        if (input.held(.down)) model_pitch -= camera_rotate_speed * dt;
+
+        if (input.held(.left)) model_roll -= camera_rotate_speed * dt;
+        if (input.held(.right)) model_roll += camera_rotate_speed * dt;
         const model_transform = engine.modelTransform(
             0.3,
             .{ 0, 0, 0 },
-            .{ .roll = device.time, .pitch = temp },
+            .{ .roll = model_roll, .pitch = model_pitch },
         );
         const view_transform = engine.viewTransform(
-            .{ 0, 0, -1 },
+            .{ 0, 0, -1.2 },
             .{ .pitch = std.math.degreesToRadians(115) },
         );
         const projection_transform = engine.projectionTransform(
