@@ -45,7 +45,7 @@ pub fn init(comptime options: Options, window: *Window) !Input {
 }
 
 /// Returns whether the given key is held
-/// Individual key presses can be set to have callbacks when initializing an Input
+/// Individual key presses can be set to have callbacks, when initializing an Input
 pub fn held(input: Input, key: Key) bool {
     const action = glfw.getKey(input.window, key);
     return action == .press;

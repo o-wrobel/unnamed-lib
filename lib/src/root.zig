@@ -56,7 +56,7 @@ const window_height = 480;
 const background_color: Color = .{ 0.1, 0.1, 0.1 };
 
 pub const Device = @This();
-const log = std.log.scoped(.App);
+const log = std.log.scoped(.UnnamedLib);
 
 window: *Window,
 device: wgpu.Device,
@@ -77,8 +77,10 @@ texture: wgpu.Texture,
 
 uniform_buffer: wgpu.Buffer,
 
+// User-space values
 input: Input,
 should_close: bool = false,
+time: f32 = 0,
 delta_time: f32 = 0,
 
 fn callbackFunction() void {
@@ -404,7 +406,8 @@ pub fn deinit(self: Device) void {
 pub fn tick(self: *Device, uniform: MyUniform) !void {
     glfw.pollEvents();
     self.should_close = glfw.windowShouldClose(self.window);
-    self.delta_time = @floatCast(glfw.getTime());
+    self.delta_time = @floatCast(glfw.getTime() - self.time);
+    self.time = @floatCast(glfw.getTime());
 
     self.queue.writeBuffer(MyUniform, self.uniform_buffer, 0, &.{uniform});
 

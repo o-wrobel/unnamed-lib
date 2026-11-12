@@ -28,7 +28,7 @@ pub fn main(init: std.process.Init) !void {
         const model_transform = engine.modelTransform(
             0.3,
             .{ 0, 0, 0 },
-            .{ .roll = device.delta_time, .pitch = temp },
+            .{ .roll = device.time, .pitch = temp },
         );
         const view_transform = engine.viewTransform(
             .{ 0, 0, -1 },
@@ -39,7 +39,7 @@ pub fn main(init: std.process.Init) !void {
             std.math.degreesToRadians(60),
         );
         const uniform: engine.MyUniform = .{
-            .time = device.delta_time,
+            .time = device.time,
             .model_tranform = model_transform,
             .view_transform = view_transform,
             .projection_transform = projection_transform,
