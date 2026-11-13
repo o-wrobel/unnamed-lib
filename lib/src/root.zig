@@ -91,27 +91,29 @@ pub fn init(
     allocator: std.mem.Allocator,
     io: std.Io,
 ) !Device {
-    try stbi.init(allocator);
     const parent_progress_node = std.Progress.start(io, .{ .root_name = "Initializing" });
-    defer parent_progress_node.end();
     defer log.info("Initialization finished", .{});
 
-    const model_loading_node = parent_progress_node.start("Loading model", 0);
+    defer parent_progress_node.end();
+
+    try stbi.init(allocator);
+
+    const instance = try wgpu.Instance.init(null);
+    defer instance.deinit();
+
+    const adapter = try instance.requestAdapterSync(.{});
+    defer adapter.deinit();
+
+    const device = try adapter.requestDeviceSync(.{});
+    var init_gpu_future = try io.concurrent(initGpu, .{ texture_filename, device, allocator });
+
     const vertices = try loadOBJ(model_filename, allocator, io);
     defer allocator.free(vertices);
-    model_loading_node.end();
     log.info("Model loaded: \x1B[34m{s}", .{model_filename});
 
-    const image_node = parent_progress_node.start("Creating image", 0);
-    const image = try createImage(256, 256, allocator);
-    defer allocator.free(image.pixels);
-    image_node.end();
-    log.info("Image created", .{});
-
-    // GLFW
-    const window_node = parent_progress_node.start("Creating window", 2);
-    try glfw.init();
-    window_node.completeOne();
+    log.info("Initializing GLFW", .{});
+    var glfw_init_future = try io.concurrent(glfw.init, .{});
+    _ = try glfw_init_future.await(io);
     glfw.windowHint(.client_api, .no_api);
     glfw.windowHint(.resizable, false);
     const window: *Window = try .create(
@@ -121,30 +123,21 @@ pub fn init(
         null,
         null,
     );
-    window_node.end();
     log.info("Window created", .{});
 
     const input = try Input.init(input_options, window);
+    log.info("Input system created", .{});
 
-    // WGPU
-    const wgpu_node = parent_progress_node.start("Setting up WebGPU", 0);
-    const instance = try wgpu.Instance.init(null);
-    defer instance.deinit();
-    wgpu_node.completeOne();
-
-    const adapter = try instance.requestAdapterSync(.{});
-    defer adapter.deinit();
-    wgpu_node.completeOne();
-
-    const device = try adapter.requestDeviceSync(.{
-        .label = "My cool device",
-        .queue_label = "Default queue",
-    });
-    // TODO: Set up callback functions
-    wgpu_node.completeOne();
-
-    const queue = try device.getQueue();
-    wgpu_node.completeOne();
+    // After initGpu is finished:
+    const result = try init_gpu_future.await(io);
+    const texture = result.texture;
+    const depth_texture = result.depth_texture;
+    const depth_texture_view = result.depth_texture_view;
+    const queue = result.queue;
+    const bind_group = result.bind_group;
+    const bind_group_layout = result.bind_group_layout;
+    const shader_module = result.shader;
+    const uniform_buffer = result.uniform_buffer;
 
     const surface = init: {
         // Get native window handle and create a wgpu surface
@@ -176,10 +169,126 @@ pub fn init(
         });
         break :init surface;
     };
-    wgpu_node.completeOne();
+
+    const render_pipeline = init: {
+        const blend_state: wgpu.RenderPipeline.BlendState = .{};
+        const color_target: wgpu.RenderPipeline.ColorTargetState = .{
+            .format = (try surface.getCapabilities(adapter.adapter)).formats[0],
+            .blend = blend_state,
+            .write_mask = .all,
+        };
+
+        const layout = try device.createPipelineLayout("My pipeline layout", &.{bind_group_layout}, 0);
+
+        break :init try device.createRenderPipeline(.{
+            .label = "My render pipeline",
+            .primitive = .{
+                .topology = .triangle_list,
+                .strip_index_format = .undefined,
+                .front_face = .ccw,
+                .cull_mode = .none,
+            },
+            .vertex = .{
+                .module = shader_module,
+                .entry_point = "vs_main",
+                .buffers = &.{Vertex.buffer_layout},
+            },
+            .fragment = .{
+                .module = shader_module,
+                .entry_point = "fs_main",
+                .targets = &.{color_target}, // Only one target for only one output color attachment
+            },
+            .layout = layout,
+            .depth_stencil = .{
+                .depth_compare = .less,
+                .depth_write_enabled = true,
+                .format = .depth24_plus,
+                .stencil_read_mask = 0,
+                .stencil_write_mask = 0,
+            },
+        });
+    };
+    log.info("Render pipeline created", .{});
+
+    const vertex_buffer, const vertex_count: u32 = init: {
+        const vertex_buffer = try device.createBuffer(.{
+            .size = vertices.len * @sizeOf(Vertex),
+            .usage = .{ .copy_dst = true, .vertex = true },
+        });
+        queue.writeBuffer(Vertex, vertex_buffer, 0, vertices);
+        break :init .{ vertex_buffer, @intCast(vertices.len) };
+    };
+    log.info("Vertex buffer created", .{});
+
+    return .{
+        .window = window,
+
+        .device = device,
+        .queue = queue,
+        .surface = surface,
+        .bind_group = bind_group,
+        .render_pipeline = render_pipeline,
+
+        .vertex_buffer = vertex_buffer,
+        .vertex_count = vertex_count,
+        .index_count = @intCast(vertices.len),
+
+        .texture = texture,
+        .depth_texture = depth_texture,
+        .depth_texture_view = depth_texture_view,
+
+        .uniform_buffer = uniform_buffer,
+
+        .input = input,
+    };
+}
+
+fn initGpu(texture_filename: []const u8, device: wgpu.Device, allocator: std.mem.Allocator) !struct {
+    queue: wgpu.Queue,
+
+    texture: wgpu.Texture,
+    texture_view: wgpu.TextureView,
+
+    depth_texture: wgpu.Texture,
+    depth_texture_view: wgpu.TextureView,
+
+    bind_group: wgpu.BindGroup,
+    bind_group_layout: wgpu.BindGroupLayout,
+
+    shader: wgpu.ShaderModule,
+    uniform_buffer: wgpu.Buffer,
+} {
+    const queue = try device.getQueue();
+
+    const depth_texture = try device.createTexture(.{
+        .usage = .{ .render_attachment = true },
+        .dimension = .@"2d",
+        .format = .depth24_plus,
+        .size = .{
+            .width = window_width,
+            .height = window_height,
+        },
+    });
+    const depth_texture_view = try depth_texture.createView(.{
+        .aspect = .depth_only,
+        .dimension = .@"2d",
+        .format = .depth24_plus,
+    });
+    log.info("Depth texture created", .{});
+
+    const uniform_buffer = init: {
+        // const min_alignment = (try adapter.getLimits()).minUniformBufferOffsetAlignment;
+        // const uniform_stride = ceilToNextMultiple(@sizeOf(MyUniform), min_alignment);
+        // TODO: Figure this out instead of hard-coding
+
+        const uniform_buffer = try device.createBuffer(.{
+            .size = 2 * uniform_stride,
+            .usage = .{ .copy_dst = true, .uniform = true },
+        });
+        break :init uniform_buffer;
+    };
 
     const shader_module: wgpu.ShaderModule = try .init(device.device, .{ .wgsl = default_shader_data });
-    wgpu_node.completeOne();
     log.info("Default shader loaded", .{});
 
     const mip_level_count: u32 = 8;
@@ -204,39 +313,7 @@ pub fn init(
         .max_anisotropy = 1,
     });
 
-    wgpu_node.completeOne();
-
-    const depth_texture = try device.createTexture(.{
-        .usage = .{ .render_attachment = true },
-        .dimension = .@"2d",
-        .format = .depth24_plus,
-        .size = .{
-            .width = window_width,
-            .height = window_height,
-        },
-    });
-    const depth_texture_view = try depth_texture.createView(.{
-        .aspect = .depth_only,
-        .dimension = .@"2d",
-        .format = .depth24_plus,
-    });
-    wgpu_node.completeOne();
-    log.info("Depth texture created", .{});
-
-    const uniform_buffer = init: {
-        // const min_alignment = (try adapter.getLimits()).minUniformBufferOffsetAlignment;
-        // const uniform_stride = ceilToNextMultiple(@sizeOf(MyUniform), min_alignment);
-        // TODO: Figure this out instead of hard-coding
-
-        const uniform_buffer = try device.createBuffer(.{
-            .size = 2 * uniform_stride,
-            .usage = .{ .copy_dst = true, .uniform = true },
-        });
-        break :init uniform_buffer;
-    };
-
     // Binding
-
     const uniform_binding_layout: wgpu.BindGroupLayout.Entry = .{
         .binding = 0,
         .visibility = .{ .vertex = true },
@@ -289,78 +366,19 @@ pub fn init(
             },
         });
     };
-    wgpu_node.completeOne();
+    // wgpu_node.completeOne();
     log.info("Bind group created", .{});
-
-    const render_pipeline = init: {
-        const blend_state: wgpu.RenderPipeline.BlendState = .{};
-        const color_target: wgpu.RenderPipeline.ColorTargetState = .{
-            .format = (try surface.getCapabilities(adapter.adapter)).formats[0],
-            .blend = blend_state,
-            .write_mask = .all,
-        };
-
-        const layout = try device.createPipelineLayout("My pipeline layout", &.{bind_group_layout}, 0);
-
-        break :init try device.createRenderPipeline(.{
-            .label = "My render pipeline",
-            .primitive = .{
-                .topology = .triangle_list,
-                .strip_index_format = .undefined,
-                .front_face = .ccw,
-                .cull_mode = .none,
-            },
-            .vertex = .{
-                .module = shader_module,
-                .entry_point = "vs_main",
-                .buffers = &.{Vertex.buffer_layout},
-            },
-            .fragment = .{
-                .module = shader_module,
-                .entry_point = "fs_main",
-                .targets = &.{color_target}, // Only one target for only one output color attachment
-            },
-            .layout = layout,
-            .depth_stencil = .{
-                .depth_compare = .less,
-                .depth_write_enabled = true,
-                .format = .depth24_plus,
-                .stencil_read_mask = 0,
-                .stencil_write_mask = 0,
-            },
-        });
-    };
-    wgpu_node.completeOne();
-    log.info("Render pipeline created", .{});
-
-    const vertex_buffer, const vertex_count: u32 = init: {
-        const vertex_buffer = try device.createBuffer(.{
-            .size = vertices.len * @sizeOf(Vertex),
-            .usage = .{ .copy_dst = true, .vertex = true },
-        });
-        queue.writeBuffer(Vertex, vertex_buffer, 0, vertices);
-        break :init .{ vertex_buffer, @intCast(vertices.len) };
-    };
-    wgpu_node.completeOne();
-    log.info("Vertex buffer created", .{});
-
-    wgpu_node.end();
-
     return .{
-        .window = window,
-        .device = device,
         .queue = queue,
-        .surface = surface,
-        .bind_group = bind_group,
-        .render_pipeline = render_pipeline,
-        .vertex_buffer = vertex_buffer,
-        .vertex_count = vertex_count,
-        .index_count = @intCast(vertices.len),
+        .texture = texture,
+        .texture_view = texture_view,
         .depth_texture = depth_texture,
         .depth_texture_view = depth_texture_view,
-        .texture = texture,
+        .bind_group = bind_group,
+        .bind_group_layout = bind_group_layout,
+
+        .shader = shader_module,
         .uniform_buffer = uniform_buffer,
-        .input = input,
     };
 }
 
