@@ -21,7 +21,17 @@ pub fn main(init: std.process.Init) !void {
     });
     const input_options: engine.Input.Options = .{ .press_callbacks = press_callbacks };
 
-    var device = try engine.init(model_filename, texture_filename, input_options, gpa, io);
+    const window_width = 640;
+    const window_height = 480;
+    var device = try engine.init(
+        model_filename,
+        texture_filename,
+        window_width,
+        window_height,
+        input_options,
+        gpa,
+        io,
+    );
     defer device.deinit();
     const input = device.input;
 

@@ -31,6 +31,7 @@ pub const Image = struct {
         allocator.free(self.pixels);
     }
 };
+const TextureAndView = struct { wgpu.Texture, wgpu.TextureView };
 
 const default_shader_data = @embedFile("default.wgsl");
 
@@ -52,8 +53,6 @@ pub const MyUniform = struct {
     _pad: [3]f32 = @splat(0),
 };
 
-const window_width = 640;
-const window_height = 480;
 const background_color: Color = .{ 0.1, 0.1, 0.1 };
 
 pub const Device = @This();
@@ -87,6 +86,8 @@ delta_time: f32 = 0,
 pub fn init(
     model_filename: []const u8,
     texture_filename: []const u8,
+    window_width: u32,
+    window_height: u32,
     comptime input_options: Input.Options,
     allocator: std.mem.Allocator,
     io: std.Io,
@@ -105,20 +106,25 @@ pub fn init(
     defer adapter.deinit();
 
     const device = try adapter.requestDeviceSync(.{});
-    var init_gpu_future = try io.concurrent(initGpu, .{ texture_filename, device, allocator });
+    var init_gpu_future = try io.concurrent(initGpu, .{
+        texture_filename,
+        window_width,
+        window_height,
+        device,
+        allocator,
+    });
 
     const vertices = try loadOBJ(model_filename, allocator, io);
     defer allocator.free(vertices);
     log.info("Model loaded: \x1B[34m{s}", .{model_filename});
 
     log.info("Initializing GLFW", .{});
-    var glfw_init_future = try io.concurrent(glfw.init, .{});
-    _ = try glfw_init_future.await(io);
+    try glfw.init();
     glfw.windowHint(.client_api, .no_api);
     glfw.windowHint(.resizable, false);
     const window: *Window = try .create(
-        window_width,
-        window_height,
+        @intCast(window_width),
+        @intCast(window_height),
         "Hello, GLFW!",
         null,
         null,
@@ -130,46 +136,15 @@ pub fn init(
 
     // After initGpu is finished:
     const result = try init_gpu_future.await(io);
-    const texture = result.texture;
-    const depth_texture = result.depth_texture;
-    const depth_texture_view = result.depth_texture_view;
+    const texture = result.texture.@"0";
+    const depth_texture, const depth_texture_view = result.depth;
     const queue = result.queue;
     const bind_group = result.bind_group;
     const bind_group_layout = result.bind_group_layout;
     const shader_module = result.shader;
     const uniform_buffer = result.uniform_buffer;
 
-    const surface = init: {
-        // Get native window handle and create a wgpu surface
-        var source = wgpu.c.WGPUSurfaceSourceWaylandSurface{
-            .chain = .{
-                .next = null,
-                .sType = wgpu.c.WGPUSType_SurfaceSourceWaylandSurface,
-            },
-            .display = glfw.getWaylandDisplay() orelse @panic("No Wayland display"),
-            .surface = glfw.getWaylandWindow(window) orelse @panic("No Wayland surface"),
-        };
-
-        const surface_desc = wgpu.c.WGPUSurfaceDescriptor{
-            .nextInChain = @ptrCast(&source.chain),
-            .label = .{ .data = "Surface", .length = "Surface".len },
-        };
-
-        const surface = try instance.createSurface(&surface_desc);
-
-        const surface_capabilities = try surface.getCapabilities(adapter.adapter);
-        const surface_format = surface_capabilities.formats[0];
-
-        surface.configure(.{
-            .width = window_width,
-            .height = window_height,
-            .format = surface_format,
-            .usage = .{ .render_attachment = true }, // The surface is a target for a render pass
-            .device = device,
-        });
-        break :init surface;
-    };
-
+    const surface = try initSurface(window, device, adapter, instance);
     const render_pipeline = init: {
         const blend_state: wgpu.RenderPipeline.BlendState = .{};
         const color_target: wgpu.RenderPipeline.ColorTargetState = .{
@@ -243,14 +218,17 @@ pub fn init(
     };
 }
 
-fn initGpu(texture_filename: []const u8, device: wgpu.Device, allocator: std.mem.Allocator) !struct {
+fn initGpu(
+    texture_filename: []const u8,
+    window_width: u32,
+    window_height: u32,
+    device: wgpu.Device,
+    allocator: std.mem.Allocator,
+) !struct {
     queue: wgpu.Queue,
 
-    texture: wgpu.Texture,
-    texture_view: wgpu.TextureView,
-
-    depth_texture: wgpu.Texture,
-    depth_texture_view: wgpu.TextureView,
+    texture: TextureAndView,
+    depth: TextureAndView,
 
     bind_group: wgpu.BindGroup,
     bind_group_layout: wgpu.BindGroupLayout,
@@ -260,20 +238,6 @@ fn initGpu(texture_filename: []const u8, device: wgpu.Device, allocator: std.mem
 } {
     const queue = try device.getQueue();
 
-    const depth_texture = try device.createTexture(.{
-        .usage = .{ .render_attachment = true },
-        .dimension = .@"2d",
-        .format = .depth24_plus,
-        .size = .{
-            .width = window_width,
-            .height = window_height,
-        },
-    });
-    const depth_texture_view = try depth_texture.createView(.{
-        .aspect = .depth_only,
-        .dimension = .@"2d",
-        .format = .depth24_plus,
-    });
     log.info("Depth texture created", .{});
 
     const uniform_buffer = init: {
@@ -294,6 +258,7 @@ fn initGpu(texture_filename: []const u8, device: wgpu.Device, allocator: std.mem
     const mip_level_count: u32 = 8;
     const texture, const texture_view = try loadTextureFromFile(texture_filename, mip_level_count, device, allocator);
     log.info("Texture loaded: \x1B[34m{s}", .{texture_filename});
+    const depth_texture, const depth_texture_view = try initDepthTexture(window_width, window_height, device);
 
     const sampler = try device.createSampler(.{
         .label = "My sampler",
@@ -366,20 +331,72 @@ fn initGpu(texture_filename: []const u8, device: wgpu.Device, allocator: std.mem
             },
         });
     };
-    // wgpu_node.completeOne();
     log.info("Bind group created", .{});
     return .{
         .queue = queue,
-        .texture = texture,
-        .texture_view = texture_view,
-        .depth_texture = depth_texture,
-        .depth_texture_view = depth_texture_view,
+        .texture = .{ texture, texture_view },
+        .depth = .{ depth_texture, depth_texture_view },
         .bind_group = bind_group,
         .bind_group_layout = bind_group_layout,
 
         .shader = shader_module,
         .uniform_buffer = uniform_buffer,
     };
+}
+
+fn initSurface(
+    window: *Window,
+    device: wgpu.Device,
+    adapter: wgpu.Adapter,
+    wgpu_instance: wgpu.Instance,
+) !wgpu.Surface {
+    // Get native window handle and create a wgpu surface
+    var source = wgpu.c.WGPUSurfaceSourceWaylandSurface{
+        .chain = .{
+            .next = null,
+            .sType = wgpu.c.WGPUSType_SurfaceSourceWaylandSurface,
+        },
+        .display = glfw.getWaylandDisplay() orelse @panic("No Wayland display"),
+        .surface = glfw.getWaylandWindow(window) orelse @panic("No Wayland surface"),
+    };
+
+    const surface_desc = wgpu.c.WGPUSurfaceDescriptor{
+        .nextInChain = @ptrCast(&source.chain),
+        .label = .{ .data = "Surface", .length = "Surface".len },
+    };
+
+    const surface = try wgpu_instance.createSurface(&surface_desc);
+
+    const surface_capabilities = try surface.getCapabilities(adapter.adapter);
+    const surface_format = surface_capabilities.formats[0];
+
+    const window_size = window.getFramebufferSize();
+    surface.configure(.{
+        .width = @intCast(window_size[0]),
+        .height = @intCast(window_size[1]),
+        .format = surface_format,
+        .usage = .{ .render_attachment = true }, // The surface is a target for a render pass
+        .device = device,
+    });
+    return surface;
+}
+
+fn initDepthTexture(surface_width: u32, surface_height: u32, device: wgpu.Device) !TextureAndView {
+    const depth_texture = try device.createTexture(.{
+        .usage = .{ .render_attachment = true },
+        .dimension = .@"2d",
+        .format = .depth24_plus,
+        .size = .{
+            .width = surface_width,
+            .height = surface_height,
+        },
+    });
+    const depth_texture_view = try depth_texture.createView(.{
+        .aspect = .depth_only,
+        .dimension = .@"2d",
+        .format = .depth24_plus,
+    });
+    return .{ depth_texture, depth_texture_view };
 }
 
 pub fn deinit(self: Device) void {
@@ -481,7 +498,7 @@ pub fn loadTextureFromFile(
     mip_level_count: u32,
     device: wgpu.Device,
     allocator: std.mem.Allocator,
-) !struct { wgpu.Texture, wgpu.TextureView } {
+) !TextureAndView {
     const channels = 4;
     const filename_sentinel = try allocator.dupeSentinel(u8, filename, 0);
     defer allocator.free(filename_sentinel);
