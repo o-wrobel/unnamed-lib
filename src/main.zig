@@ -11,13 +11,17 @@ fn callbackFunction() void {
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
     const gpa = init.gpa;
+    var args = init.minimal.args.iterate();
+    _ = args.next();
+    const model_filename = if (args.next()) |f| f else "cube.obj";
+    const texture_filename = if (args.next()) |f| f else "texture.jpg";
 
     const press_callbacks = comptime engine.Input.CallbackMap.init(.{
         .space = &callbackFunction,
     });
     const input_options: engine.Input.Options = .{ .press_callbacks = press_callbacks };
 
-    var device = try engine.init("fourareen/fourareen.obj", "fourareen/fourareen.jpg", input_options, gpa, io);
+    var device = try engine.init(model_filename, texture_filename, input_options, gpa, io);
     defer device.deinit();
     const input = device.input;
 
