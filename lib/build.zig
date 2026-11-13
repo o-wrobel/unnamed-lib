@@ -14,6 +14,9 @@ pub fn build(b: *std.Build) void {
     const tinyobj_dep = b.dependency("tinyobjloader", .{});
     const tinyobjloader = tinyobj_dep.module("tinyobjloader");
 
+    const stbi_dep = b.dependency("zstbi", .{});
+    const stbi = stbi_dep.module("root");
+
     const root = b.addModule("unnamedlib", .{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
@@ -23,6 +26,7 @@ pub fn build(b: *std.Build) void {
             .{ .module = wgpu, .name = "wgpu" },
             .{ .module = glfw, .name = "glfw" },
             .{ .module = tinyobjloader, .name = "tinyobj" },
+            .{ .module = stbi, .name = "stbi" },
         },
     });
     root.linkLibrary(glfw_lib);

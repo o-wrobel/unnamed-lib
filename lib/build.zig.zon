@@ -16,6 +16,10 @@
             .url = "git+https://github.com/o-wrobel/tinyobjloader-zig#53a7c0504dca8107dbe3b663747401731fde2e3f",
             .hash = "tinyobjloader-0.0.4-x3dUpbdpAgDq9fp5cHMRjvkHAcWn3rC4mZP78CiS1PNQ",
         },
+        .zstbi = .{
+            .url = "git+https://github.com/zig-gamedev/zstbi#6b9bea1fd13eb7c8299f23605b4c6b04fccd9aa7",
+            .hash = "zstbi-0.11.0-dev-L0Ea_wGXBwCvXIzUWRNZe-6FpofI_nz4uAOQ4O0Fuxko",
+        },
     },
     .paths = .{
         "build.zig",

@@ -17,7 +17,7 @@ pub fn main(init: std.process.Init) !void {
     });
     const input_options: engine.Input.Options = .{ .press_callbacks = press_callbacks };
 
-    var device = try engine.init("models/cube.obj", input_options, gpa, io);
+    var device = try engine.init("fourareen/fourareen.obj", "fourareen/fourareen.jpg", input_options, gpa, io);
     defer device.deinit();
     const input = device.input;
 
