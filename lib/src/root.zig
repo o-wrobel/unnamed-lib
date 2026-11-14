@@ -55,7 +55,7 @@ pub const MyUniform = struct {
 
 const background_color: Color = .{ 0.1, 0.1, 0.1 };
 
-pub const Device = @This();
+pub const Context = @This();
 const log = std.log.scoped(.UnnamedLib);
 
 window: *Window,
@@ -86,9 +86,9 @@ time: f32 = 0,
 delta_time: f32 = 0,
 
 fn onWindowResizeCallback(window: *Window, width: c_int, height: c_int) callconv(.c) void {
-    const self: *Device = window.getUserPointer(Device) orelse return;
+    const self: *Context = window.getUserPointer(Context) orelse return;
     if (width <= 0 or height <= 0) return; // window minimized
-    self.resize(@intCast(width), @intCast(height));
+    self.resizeWindow(@intCast(width), @intCast(height));
 }
 
 pub fn init(
@@ -99,14 +99,14 @@ pub fn init(
     comptime input_options: Input.Options,
     allocator: std.mem.Allocator,
     io: std.Io,
-) !*Device {
+) !*Context {
     const parent_progress_node = std.Progress.start(io, .{ .root_name = "Initializing" });
     defer log.info("Initialization finished", .{});
 
     defer parent_progress_node.end();
 
-    const self = try allocator.create(Device);
-    errdefer allocator.destroy(self);
+    const context = try allocator.create(Context);
+    errdefer allocator.destroy(context);
 
     try stbi.init(allocator);
 
@@ -233,7 +233,7 @@ pub fn init(
     };
     log.info("Vertex buffer created", .{});
 
-    self.* = .{
+    context.* = .{
         .window = window,
         .allocator = allocator,
 
@@ -258,10 +258,10 @@ pub fn init(
     };
 
     // Hand the heap-allocated Device to GLFW so callbacks can reach it.
-    window.setUserPointer(self);
+    window.setUserPointer(context);
     _ = window.setFramebufferSizeCallback(&onWindowResizeCallback);
 
-    return self;
+    return context;
 }
 
 fn initGpu(
@@ -408,55 +408,55 @@ fn initDepthTexture(surface_width: u32, surface_height: u32, device: wgpu.Device
     return .{ depth_texture, depth_texture_view };
 }
 
-pub fn deinit(self: *Device) void {
+pub fn deinit(context: *Context) void {
     log.info("Deinitializing", .{});
-    self.device.deinit();
-    self.queue.deinit();
-    self.surface.deinit();
-    self.window.destroy();
-    self.bind_group.deinit();
-    self.render_pipeline.deinit();
+    context.device.deinit();
+    context.queue.deinit();
+    context.surface.deinit();
+    context.window.destroy();
+    context.bind_group.deinit();
+    context.render_pipeline.deinit();
 
-    self.vertex_buffer.deinit();
-    self.uniform_buffer.deinit();
+    context.vertex_buffer.deinit();
+    context.uniform_buffer.deinit();
 
-    self.texture.deinit();
-    self.depth_texture.deinit();
-    self.depth_texture_view.deinit();
+    context.texture.deinit();
+    context.depth_texture.deinit();
+    context.depth_texture_view.deinit();
 
     stbi.deinit();
-    self.allocator.destroy(self);
+    context.allocator.destroy(context);
 }
 
-fn resize(self: *Device, new_width: u32, new_height: u32) void {
-    self.surface.configure(.{
-        .device = self.device,
+fn resizeWindow(context: *Context, new_width: u32, new_height: u32) void {
+    context.surface.configure(.{
+        .device = context.device,
         .width = new_width,
         .height = new_height,
-        .format = self.surface_format,
+        .format = context.surface_format,
         .usage = .{ .render_attachment = true },
     });
 
-    self.depth_texture.deinit();
-    self.depth_texture_view.deinit();
-    const new_depth = initDepthTexture(new_width, new_height, self.device) catch |err| {
+    context.depth_texture.deinit();
+    context.depth_texture_view.deinit();
+    const new_depth = initDepthTexture(new_width, new_height, context.device) catch |err| {
         log.err("resize: failed to recreate depth texture: {s}", .{@errorName(err)});
         return;
     };
-    self.depth_texture = new_depth.@"0";
-    self.depth_texture_view = new_depth.@"1";
+    context.depth_texture = new_depth.@"0";
+    context.depth_texture_view = new_depth.@"1";
 }
 
-pub fn tick(self: *Device, uniform: MyUniform) !void {
+pub fn tick(context: *Context, uniform: MyUniform) !void {
     glfw.pollEvents();
-    self.should_close = glfw.windowShouldClose(self.window);
-    self.delta_time = @floatCast(glfw.getTime() - self.time);
-    self.time = @floatCast(glfw.getTime());
+    context.should_close = glfw.windowShouldClose(context.window);
+    context.delta_time = @floatCast(glfw.getTime() - context.time);
+    context.time = @floatCast(glfw.getTime());
 
-    self.queue.writeBuffer(MyUniform, self.uniform_buffer, 0, &.{uniform});
+    context.queue.writeBuffer(MyUniform, context.uniform_buffer, 0, &.{uniform});
 
-    const target_view = try getNextSurfaceTextureView(self.surface) orelse unreachable;
-    const encoder = try self.device.createCommandEncoder(.{ .label = "My command encoder" });
+    const target_view = try getNextSurfaceTextureView(context.surface) orelse unreachable;
+    const encoder = try context.device.createCommandEncoder(.{ .label = "My command encoder" });
     defer encoder.deinit();
 
     const color_attachment: wgpu.RenderPassEncoder.ColorAttachment = .{
@@ -470,7 +470,7 @@ pub fn tick(self: *Device, uniform: MyUniform) !void {
         .color_attachments = &.{color_attachment},
         .label = "My render pass",
         .depth_stencil_attachment = .{
-            .view = self.depth_texture_view,
+            .view = context.depth_texture_view,
             .depth_clear_value = 1,
             .depth_load_op = .clear,
             .depth_store_op = .store,
@@ -478,24 +478,24 @@ pub fn tick(self: *Device, uniform: MyUniform) !void {
         },
     });
 
-    render_pass.setPipeline(self.render_pipeline);
+    render_pass.setPipeline(context.render_pipeline);
 
-    render_pass.setVertexBuffer(0, self.vertex_buffer, 0, self.vertex_buffer.size);
+    render_pass.setVertexBuffer(0, context.vertex_buffer, 0, context.vertex_buffer.size);
 
-    render_pass.setBindGroup(0, self.bind_group, &.{0});
-    render_pass.draw(self.vertex_count, 1, 0, 0);
+    render_pass.setBindGroup(0, context.bind_group, &.{0});
+    render_pass.draw(context.vertex_count, 1, 0, 0);
 
     render_pass.end();
     render_pass.deinit();
 
     const command = try encoder.finish(.{ .label = "Command buffer" });
 
-    self.queue.submitCommands(&.{command});
+    context.queue.submitCommands(&.{command});
 
-    try self.surface.present();
+    try context.surface.present();
 
     target_view.deinit();
-    _ = self.device.poll(false);
+    _ = context.device.poll(false);
 }
 
 // Utility functions
