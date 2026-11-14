@@ -59,9 +59,11 @@ pub const Device = @This();
 const log = std.log.scoped(.UnnamedLib);
 
 window: *Window,
+allocator: std.mem.Allocator,
 device: wgpu.Device,
 queue: wgpu.Queue,
 surface: wgpu.Surface,
+surface_format: wgpu.Texture.Format,
 bind_group: wgpu.BindGroup,
 render_pipeline: wgpu.RenderPipeline,
 
@@ -83,6 +85,12 @@ should_close: bool = false,
 time: f32 = 0,
 delta_time: f32 = 0,
 
+fn onWindowResizeCallback(window: *Window, width: c_int, height: c_int) callconv(.c) void {
+    const self: *Device = window.getUserPointer(Device) orelse return;
+    if (width <= 0 or height <= 0) return; // window minimized
+    self.resize(@intCast(width), @intCast(height));
+}
+
 pub fn init(
     model_filename: []const u8,
     texture_filename: []const u8,
@@ -91,11 +99,14 @@ pub fn init(
     comptime input_options: Input.Options,
     allocator: std.mem.Allocator,
     io: std.Io,
-) !Device {
+) !*Device {
     const parent_progress_node = std.Progress.start(io, .{ .root_name = "Initializing" });
     defer log.info("Initialization finished", .{});
 
     defer parent_progress_node.end();
+
+    const self = try allocator.create(Device);
+    errdefer allocator.destroy(self);
 
     try stbi.init(allocator);
 
@@ -121,7 +132,7 @@ pub fn init(
     log.info("Initializing GLFW", .{});
     try glfw.init();
     glfw.windowHint(.client_api, .no_api);
-    glfw.windowHint(.resizable, false);
+    glfw.windowHint(.resizable, true);
     const window: *Window = try .create(
         @intCast(window_width),
         @intCast(window_height),
@@ -144,7 +155,34 @@ pub fn init(
     const shader_module = result.shader;
     const uniform_buffer = result.uniform_buffer;
 
-    const surface = try initSurface(window, device, adapter, instance);
+    // Get native window handle and create a wgpu surface
+    var source = wgpu.c.WGPUSurfaceSourceWaylandSurface{
+        .chain = .{
+            .next = null,
+            .sType = wgpu.c.WGPUSType_SurfaceSourceWaylandSurface,
+        },
+        .display = glfw.getWaylandDisplay() orelse @panic("No Wayland display"),
+        .surface = glfw.getWaylandWindow(window) orelse @panic("No Wayland surface"),
+    };
+
+    const surface_desc = wgpu.c.WGPUSurfaceDescriptor{
+        .nextInChain = @ptrCast(&source.chain),
+        .label = .{ .data = "Surface", .length = "Surface".len },
+    };
+
+    var surface = try instance.createSurface(&surface_desc);
+
+    const surface_capabilities = try surface.getCapabilities(adapter.adapter);
+    const surface_format = surface_capabilities.formats[0];
+
+    const window_size = window.getFramebufferSize();
+    surface.configure(.{
+        .width = @intCast(window_size[0]),
+        .height = @intCast(window_size[1]),
+        .format = surface_format,
+        .usage = .{ .render_attachment = true }, // The surface is a target for a render pass
+        .device = device,
+    });
     const render_pipeline = init: {
         const blend_state: wgpu.RenderPipeline.BlendState = .{};
         const color_target: wgpu.RenderPipeline.ColorTargetState = .{
@@ -195,12 +233,14 @@ pub fn init(
     };
     log.info("Vertex buffer created", .{});
 
-    return .{
+    self.* = .{
         .window = window,
+        .allocator = allocator,
 
         .device = device,
         .queue = queue,
         .surface = surface,
+        .surface_format = surface_format,
         .bind_group = bind_group,
         .render_pipeline = render_pipeline,
 
@@ -216,6 +256,12 @@ pub fn init(
 
         .input = input,
     };
+
+    // Hand the heap-allocated Device to GLFW so callbacks can reach it.
+    window.setUserPointer(self);
+    _ = window.setFramebufferSizeCallback(&onWindowResizeCallback);
+
+    return self;
 }
 
 fn initGpu(
@@ -344,43 +390,6 @@ fn initGpu(
     };
 }
 
-fn initSurface(
-    window: *Window,
-    device: wgpu.Device,
-    adapter: wgpu.Adapter,
-    wgpu_instance: wgpu.Instance,
-) !wgpu.Surface {
-    // Get native window handle and create a wgpu surface
-    var source = wgpu.c.WGPUSurfaceSourceWaylandSurface{
-        .chain = .{
-            .next = null,
-            .sType = wgpu.c.WGPUSType_SurfaceSourceWaylandSurface,
-        },
-        .display = glfw.getWaylandDisplay() orelse @panic("No Wayland display"),
-        .surface = glfw.getWaylandWindow(window) orelse @panic("No Wayland surface"),
-    };
-
-    const surface_desc = wgpu.c.WGPUSurfaceDescriptor{
-        .nextInChain = @ptrCast(&source.chain),
-        .label = .{ .data = "Surface", .length = "Surface".len },
-    };
-
-    const surface = try wgpu_instance.createSurface(&surface_desc);
-
-    const surface_capabilities = try surface.getCapabilities(adapter.adapter);
-    const surface_format = surface_capabilities.formats[0];
-
-    const window_size = window.getFramebufferSize();
-    surface.configure(.{
-        .width = @intCast(window_size[0]),
-        .height = @intCast(window_size[1]),
-        .format = surface_format,
-        .usage = .{ .render_attachment = true }, // The surface is a target for a render pass
-        .device = device,
-    });
-    return surface;
-}
-
 fn initDepthTexture(surface_width: u32, surface_height: u32, device: wgpu.Device) !TextureAndView {
     const depth_texture = try device.createTexture(.{
         .usage = .{ .render_attachment = true },
@@ -399,7 +408,7 @@ fn initDepthTexture(surface_width: u32, surface_height: u32, device: wgpu.Device
     return .{ depth_texture, depth_texture_view };
 }
 
-pub fn deinit(self: Device) void {
+pub fn deinit(self: *Device) void {
     log.info("Deinitializing", .{});
     self.device.deinit();
     self.queue.deinit();
@@ -410,7 +419,32 @@ pub fn deinit(self: Device) void {
 
     self.vertex_buffer.deinit();
     self.uniform_buffer.deinit();
+
+    self.texture.deinit();
+    self.depth_texture.deinit();
+    self.depth_texture_view.deinit();
+
     stbi.deinit();
+    self.allocator.destroy(self);
+}
+
+fn resize(self: *Device, new_width: u32, new_height: u32) void {
+    self.surface.configure(.{
+        .device = self.device,
+        .width = new_width,
+        .height = new_height,
+        .format = self.surface_format,
+        .usage = .{ .render_attachment = true },
+    });
+
+    self.depth_texture.deinit();
+    self.depth_texture_view.deinit();
+    const new_depth = initDepthTexture(new_width, new_height, self.device) catch |err| {
+        log.err("resize: failed to recreate depth texture: {s}", .{@errorName(err)});
+        return;
+    };
+    self.depth_texture = new_depth.@"0";
+    self.depth_texture_view = new_depth.@"1";
 }
 
 pub fn tick(self: *Device, uniform: MyUniform) !void {
