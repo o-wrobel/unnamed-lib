@@ -23,7 +23,7 @@ pub fn main(init: std.process.Init) !void {
 
     const window_width = 640;
     const window_height = 480;
-    const context = try ul.init(
+    var context = try ul.init(
         model_filename,
         texture_filename,
         window_width,
