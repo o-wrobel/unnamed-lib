@@ -45,25 +45,20 @@ pub fn main(init: std.process.Init) !void {
 
         if (input.held(.left)) model_roll -= camera_rotate_speed * dt;
         if (input.held(.right)) model_roll += camera_rotate_speed * dt;
-        const model_transform = ul.modelTransform(
-            0.3,
-            .{ 0, 0, 0 },
-            .{ .roll = model_roll, .pitch = model_pitch },
-        );
-        const view_transform = ul.viewTransform(
-            .{ 0, 0, -1.2 },
-            .{ .pitch = std.math.degreesToRadians(115) },
-        );
-        const projection_transform = ul.projectionTransform(
-            640.0 / 480.0,
-            std.math.degreesToRadians(60),
-        );
-        const uniform: ul.MyUniform = .{
-            .time = context.time,
-            .model_tranform = model_transform,
-            .view_transform = view_transform,
-            .projection_transform = projection_transform,
+        const scene_options: ul.SceneOptions = .{
+            .model_transform = .{
+                .scale = 0.3,
+                .rotation_along_origin = .{
+                    .roll = model_roll,
+                    .pitch = model_pitch,
+                },
+            },
+            .view_transform = .{
+                .focal_point = .{ 0, 0, -1.2 },
+                .rotation = .{ .pitch = std.math.degreesToRadians(115) },
+            },
+            .projection_transform = .{ .vertical_field_of_view = std.math.degreesToRadians(60) },
         };
-        try context.tick(uniform);
+        try context.tick(scene_options);
     }
 }

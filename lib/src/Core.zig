@@ -1,29 +1,31 @@
 const std = @import("std");
-pub const Core = @This();
 
 const glfw = @import("glfw");
 const Window = glfw.Window;
 const obj = @import("tinyobj");
 const stbi = @import("stbi");
-const Scene = obj.Scene;
 const wgpu = @import("wgpu");
 
-pub const Input = @import("Input.zig");
-pub const math = @import("math.zig");
+const math = @import("math.zig");
+const Rotation = math.Rotation;
 const Mat4x4 = math.Mat4x4;
 const identity_matrix = math.identity_matrix;
 const ortho_projection = math.ortho_projection;
 const transpose = math.transpose;
 const rotationMatrix = math.rotationMatrix;
 const batchMatrixMultiply = math.batchMatrixMultiply;
-pub const modelTransform = math.modelTransform;
-pub const viewTransform = math.viewTransform;
-pub const projectionTransform = math.projectionTransform;
-pub const Vec2f = math.Vec2f;
-pub const Vec3f = math.Vec3f;
+const modelTransform = math.modelTransform;
+const viewTransform = math.viewTransform;
+const projectionTransform = math.projectionTransform;
+const Vec2f = math.Vec2f;
+const Vec3f = math.Vec3f;
 
-pub const Color = @Vector(3, f32);
-pub const Image = struct {
+const log = std.log.scoped(.UnnamedLib);
+
+pub const Core = @This();
+
+const Color = @Vector(3, f32);
+const Image = struct {
     pixels: [][4]u8,
     width: usize,
     height: usize,
@@ -33,6 +35,25 @@ pub const Image = struct {
     }
 };
 const TextureAndView = struct { wgpu.Texture, wgpu.TextureView };
+
+pub const SceneOptions = struct {
+    pub const Model = struct {
+        scale: f32 = 1,
+        translation: Vec3f = @splat(0),
+        rotation_along_origin: Rotation = .{},
+    };
+    pub const View = struct {
+        focal_point: Vec3f = @splat(0),
+        rotation: Rotation = .{},
+    };
+    pub const Projection = struct {
+        /// In radians
+        vertical_field_of_view: f32,
+    };
+    model_transform: Model,
+    view_transform: View,
+    projection_transform: Projection,
+};
 
 const default_shader_data = @embedFile("default.wgsl");
 
@@ -55,8 +76,6 @@ pub const MyUniform = struct {
 };
 
 const background_color: Color = .{ 0.1, 0.1, 0.1 };
-
-const log = std.log.scoped(.UnnamedLib);
 
 window: *Window,
 allocator: std.mem.Allocator,
@@ -428,8 +447,26 @@ fn resizeWindow(core: *Core, new_width: u32, new_height: u32) void {
     core.depth_texture_view = new_depth.@"1";
 }
 
-pub fn tick(core: *Core, uniform: MyUniform) !void {
+pub fn tick(core: *Core, scene_options: SceneOptions) !void {
     glfw.pollEvents();
+    // const window_size = core.window.getSize();
+    const ratio = 1;
+    const projection_transform = projectionTransform(
+        ratio,
+        scene_options.projection_transform.vertical_field_of_view,
+    );
+    const uniform: MyUniform = .{
+        .model_tranform = modelTransform(
+            scene_options.model_transform.scale,
+            scene_options.model_transform.translation,
+            scene_options.model_transform.rotation_along_origin,
+        ),
+        .view_transform = viewTransform(
+            scene_options.view_transform.focal_point,
+            scene_options.view_transform.rotation,
+        ),
+        .projection_transform = projection_transform,
+    };
     core.queue.writeBuffer(MyUniform, core.uniform_buffer, 0, &.{uniform});
 
     const target_view = try getNextSurfaceTextureView(core.surface) orelse unreachable;

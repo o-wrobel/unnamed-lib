@@ -18,7 +18,7 @@ pub const ortho_projection: Mat4x4 = transpose(.{
 });
 
 /// In radians
-const Rotation = struct {
+pub const Rotation = struct {
     pitch: f32 = 0,
     yaw: f32 = 0,
     roll: f32 = 0,
