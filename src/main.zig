@@ -1,9 +1,10 @@
 const std = @import("std");
 
 const ul = @import("engine");
+var escape_pressed: bool = false;
 
 fn callbackFunction() void {
-    std.debug.print("Pressed space!\n", .{});
+    escape_pressed = true;
 }
 
 pub fn main(init: std.process.Init) !void {
@@ -15,7 +16,7 @@ pub fn main(init: std.process.Init) !void {
     const texture_filename = if (args.next()) |f| f else "texture.jpg";
 
     const press_callbacks = comptime ul.Input.CallbackMap.init(.{
-        .space = &callbackFunction,
+        .escape = &callbackFunction,
     });
     const input_options: ul.Input.Options = .{ .press_callbacks = press_callbacks };
 
@@ -37,6 +38,7 @@ pub fn main(init: std.process.Init) !void {
     var model_pitch: f32 = 0;
     var model_roll: f32 = 0;
     while (!context.should_close) {
+        if (escape_pressed) break;
         const dt = context.delta_time;
         if (input.held(.up)) model_pitch += camera_rotate_speed * dt;
         if (input.held(.down)) model_pitch -= camera_rotate_speed * dt;
