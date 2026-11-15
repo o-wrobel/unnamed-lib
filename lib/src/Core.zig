@@ -262,6 +262,14 @@ pub fn init(
     window.setUserPointer(core);
     _ = window.setFramebufferSizeCallback(&onWindowResizeCallback);
 
+    // The depth texture was created on the worker with the *requested* size;
+    // the actual framebuffer can differ (HiDPI). The depth attachment must
+    // match the surface size, so recreate it when they disagree.
+    const framebuffer_w: u32 = @intCast(window_size[0]);
+    const framebuffer_h: u32 = @intCast(window_size[1]);
+    if (framebuffer_w != window_width or framebuffer_h != window_height)
+        resizeWindow(core, framebuffer_w, framebuffer_h);
+
     return core;
 }
 
@@ -449,10 +457,12 @@ fn resizeWindow(core: *Core, new_width: u32, new_height: u32) void {
 
 pub fn tick(core: *Core, scene_options: SceneOptions) !void {
     glfw.pollEvents();
-    // const window_size = core.window.getSize();
-    const ratio = 1;
+
+    // The resize callback fires during pollEvents and updates
+    // core.width/height, so the aspect ratio is fresh every frame.
+    const aspect_ratio = @as(f32, @floatFromInt(core.window.getSize()[0])) / @as(f32, @floatFromInt(core.window.getSize()[1]));
     const projection_transform = projectionTransform(
-        ratio,
+        aspect_ratio,
         scene_options.projection_transform.vertical_field_of_view,
     );
     const uniform: MyUniform = .{

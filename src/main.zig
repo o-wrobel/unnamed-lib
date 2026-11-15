@@ -1,8 +1,6 @@
 const std = @import("std");
 
 const ul = @import("engine");
-const Model = ul.Model;
-const Vertex = ul.Vertex;
 
 fn callbackFunction() void {
     std.debug.print("Pressed space!\n", .{});
