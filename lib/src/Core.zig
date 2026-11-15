@@ -1,7 +1,7 @@
 const std = @import("std");
 
 const glfw = @import("glfw");
-const Window = glfw.Window;
+pub const Window = glfw.Window;
 const obj = @import("tinyobj");
 const stbi = @import("stbi");
 const wgpu = @import("wgpu");
@@ -21,8 +21,6 @@ const Vec2f = math.Vec2f;
 const Vec3f = math.Vec3f;
 
 const log = std.log.scoped(.UnnamedLib);
-
-pub const Core = @This();
 
 const Color = @Vector(3, f32);
 const Image = struct {
@@ -56,27 +54,20 @@ pub const SceneOptions = struct {
 };
 
 const default_shader_data = @embedFile("default.wgsl");
-
-const uniform_stride = 256;
-
-pub const Vertex = struct {
-    position: Vec3f,
-    normal: Vec3f,
-    color: Color,
-    uv: Vec2f,
-    pub const buffer_layout = bufferLayout(@This());
-};
-
 pub const MyUniform = struct {
     model_tranform: Mat4x4 = identity_matrix,
     view_transform: Mat4x4 = identity_matrix,
     projection_transform: Mat4x4 = identity_matrix,
     time: f32 = 0,
     _pad: [3]f32 = @splat(0),
+    pub fn stride() comptime_int {
+        return @sizeOf(@This());
+    }
 };
-
+const uniform_stride = MyUniform.stride();
 const background_color: Color = .{ 0.1, 0.1, 0.1 };
 
+pub const Core = @This();
 window: *Window,
 allocator: std.mem.Allocator,
 device: wgpu.Device,
@@ -273,13 +264,122 @@ pub fn init(
     return core;
 }
 
-fn initGpu(
-    texture_filename: []const u8,
-    window_width: u32,
-    window_height: u32,
-    device: wgpu.Device,
-    allocator: std.mem.Allocator,
-) !struct {
+pub fn deinit(self: *Core) void {
+    self.device.deinit();
+    self.queue.deinit();
+    self.surface.deinit();
+    self.window.destroy();
+    self.bind_group.deinit();
+    self.render_pipeline.deinit();
+
+    self.vertex_buffer.deinit();
+    self.uniform_buffer.deinit();
+
+    self.texture.deinit();
+    self.depth_texture.deinit();
+    self.depth_texture_view.deinit();
+
+    stbi.deinit();
+    self.allocator.destroy(self);
+}
+
+pub fn tick(core: *Core, scene_options: SceneOptions) !void {
+    glfw.pollEvents();
+
+    // The resize callback fires during pollEvents and updates
+    // core.width/height, so the aspect ratio is fresh every frame.
+    const aspect_ratio = @as(f32, @floatFromInt(core.window.getSize()[0])) / @as(f32, @floatFromInt(core.window.getSize()[1]));
+    const projection_transform = projectionTransform(
+        aspect_ratio,
+        scene_options.projection_transform.vertical_field_of_view,
+    );
+    const uniform: MyUniform = .{
+        .model_tranform = modelTransform(
+            scene_options.model_transform.scale,
+            scene_options.model_transform.translation,
+            scene_options.model_transform.rotation_along_origin,
+        ),
+        .view_transform = viewTransform(
+            scene_options.view_transform.focal_point,
+            scene_options.view_transform.rotation,
+        ),
+        .projection_transform = projection_transform,
+    };
+    core.queue.writeBuffer(MyUniform, core.uniform_buffer, 0, &.{uniform});
+
+    const target_view = try getNextSurfaceTextureView(core.surface) orelse unreachable;
+    const encoder = try core.device.createCommandEncoder(.{ .label = "My command encoder" });
+    defer encoder.deinit();
+
+    const color_attachment: wgpu.RenderPassEncoder.ColorAttachment = .{
+        .view = target_view,
+        .clear_value = color(background_color),
+        .load_op = .clear,
+        .store_op = .store,
+    };
+
+    const render_pass = try encoder.beginRenderPass(.{
+        .color_attachments = &.{color_attachment},
+        .label = "My render pass",
+        .depth_stencil_attachment = .{
+            .view = core.depth_texture_view,
+            .depth_clear_value = 1,
+            .depth_load_op = .clear,
+            .depth_store_op = .store,
+            .depth_read_only = false,
+        },
+    });
+
+    render_pass.setPipeline(core.render_pipeline);
+
+    render_pass.setVertexBuffer(0, core.vertex_buffer, 0, core.vertex_buffer.size);
+
+    render_pass.setBindGroup(0, core.bind_group, &.{0});
+    render_pass.draw(core.vertex_count, 1, 0, 0);
+
+    render_pass.end();
+    render_pass.deinit();
+
+    const command = try encoder.finish(.{ .label = "Command buffer" });
+
+    core.queue.submitCommands(&.{command});
+
+    try core.surface.present();
+
+    target_view.deinit();
+    _ = core.device.poll(false);
+}
+
+fn resizeWindow(core: *Core, new_width: u32, new_height: u32) void {
+    core.surface.configure(.{
+        .device = core.device,
+        .width = new_width,
+        .height = new_height,
+        .format = core.surface_format,
+        .usage = .{ .render_attachment = true },
+    });
+
+    core.depth_texture.deinit();
+    core.depth_texture_view.deinit();
+    const new_depth = initDepthTexture(new_width, new_height, core.device) catch |err| {
+        log.err("resize: failed to recreate depth texture: {s}", .{@errorName(err)});
+        return;
+    };
+    core.depth_texture = new_depth.@"0";
+    core.depth_texture_view = new_depth.@"1";
+}
+
+pub const Vertex = struct {
+    position: Vec3f,
+    normal: Vec3f,
+    color: Color,
+    uv: Vec2f,
+    pub const buffer_layout = bufferLayout(@This());
+};
+
+// Subtasks of init()
+
+const GpuState = struct {
     queue: wgpu.Queue,
 
     texture: TextureAndView,
@@ -290,7 +390,15 @@ fn initGpu(
 
     shader: wgpu.ShaderModule,
     uniform_buffer: wgpu.Buffer,
-} {
+};
+
+fn initGpu(
+    texture_filename: []const u8,
+    window_width: u32,
+    window_height: u32,
+    device: wgpu.Device,
+    allocator: std.mem.Allocator,
+) !GpuState {
     const queue = try device.getQueue();
 
     log.info("Depth texture created", .{});
@@ -417,118 +525,13 @@ fn initDepthTexture(surface_width: u32, surface_height: u32, device: wgpu.Device
     return .{ depth_texture, depth_texture_view };
 }
 
-pub fn deinit(self: *Core) void {
-    self.device.deinit();
-    self.queue.deinit();
-    self.surface.deinit();
-    self.window.destroy();
-    self.bind_group.deinit();
-    self.render_pipeline.deinit();
-
-    self.vertex_buffer.deinit();
-    self.uniform_buffer.deinit();
-
-    self.texture.deinit();
-    self.depth_texture.deinit();
-    self.depth_texture_view.deinit();
-
-    stbi.deinit();
-    self.allocator.destroy(self);
-}
-
-fn resizeWindow(core: *Core, new_width: u32, new_height: u32) void {
-    core.surface.configure(.{
-        .device = core.device,
-        .width = new_width,
-        .height = new_height,
-        .format = core.surface_format,
-        .usage = .{ .render_attachment = true },
-    });
-
-    core.depth_texture.deinit();
-    core.depth_texture_view.deinit();
-    const new_depth = initDepthTexture(new_width, new_height, core.device) catch |err| {
-        log.err("resize: failed to recreate depth texture: {s}", .{@errorName(err)});
-        return;
-    };
-    core.depth_texture = new_depth.@"0";
-    core.depth_texture_view = new_depth.@"1";
-}
-
-pub fn tick(core: *Core, scene_options: SceneOptions) !void {
-    glfw.pollEvents();
-
-    // The resize callback fires during pollEvents and updates
-    // core.width/height, so the aspect ratio is fresh every frame.
-    const aspect_ratio = @as(f32, @floatFromInt(core.window.getSize()[0])) / @as(f32, @floatFromInt(core.window.getSize()[1]));
-    const projection_transform = projectionTransform(
-        aspect_ratio,
-        scene_options.projection_transform.vertical_field_of_view,
-    );
-    const uniform: MyUniform = .{
-        .model_tranform = modelTransform(
-            scene_options.model_transform.scale,
-            scene_options.model_transform.translation,
-            scene_options.model_transform.rotation_along_origin,
-        ),
-        .view_transform = viewTransform(
-            scene_options.view_transform.focal_point,
-            scene_options.view_transform.rotation,
-        ),
-        .projection_transform = projection_transform,
-    };
-    core.queue.writeBuffer(MyUniform, core.uniform_buffer, 0, &.{uniform});
-
-    const target_view = try getNextSurfaceTextureView(core.surface) orelse unreachable;
-    const encoder = try core.device.createCommandEncoder(.{ .label = "My command encoder" });
-    defer encoder.deinit();
-
-    const color_attachment: wgpu.RenderPassEncoder.ColorAttachment = .{
-        .view = target_view,
-        .clear_value = color(background_color),
-        .load_op = .clear,
-        .store_op = .store,
-    };
-
-    const render_pass = try encoder.beginRenderPass(.{
-        .color_attachments = &.{color_attachment},
-        .label = "My render pass",
-        .depth_stencil_attachment = .{
-            .view = core.depth_texture_view,
-            .depth_clear_value = 1,
-            .depth_load_op = .clear,
-            .depth_store_op = .store,
-            .depth_read_only = false,
-        },
-    });
-
-    render_pass.setPipeline(core.render_pipeline);
-
-    render_pass.setVertexBuffer(0, core.vertex_buffer, 0, core.vertex_buffer.size);
-
-    render_pass.setBindGroup(0, core.bind_group, &.{0});
-    render_pass.draw(core.vertex_count, 1, 0, 0);
-
-    render_pass.end();
-    render_pass.deinit();
-
-    const command = try encoder.finish(.{ .label = "Command buffer" });
-
-    core.queue.submitCommands(&.{command});
-
-    try core.surface.present();
-
-    target_view.deinit();
-    _ = core.device.poll(false);
-}
+// Other functions
 
 fn onWindowResizeCallback(window: *Window, width: c_int, height: c_int) callconv(.c) void {
     const self: *Core = window.getUserPointer(Core) orelse return;
     if (width <= 0 or height <= 0) return; // window minimized
     self.resizeWindow(@intCast(width), @intCast(height));
 }
-
-// Utility functions
 
 pub fn bufferLayout(comptime T: type) wgpu.RenderPipeline.VertexBufferLayout {
     const ti = @typeInfo(T);

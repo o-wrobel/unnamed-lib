@@ -2,10 +2,6 @@ const std = @import("std");
 
 const glfw = @import("glfw");
 const Window = glfw.Window;
-const obj = @import("tinyobj");
-const Scene = obj.Scene;
-const stbi = @import("stbi");
-const wgpu = @import("wgpu");
 
 const Core = @import("Core.zig");
 pub const SceneOptions = Core.SceneOptions;
@@ -13,21 +9,21 @@ pub const MyUniform = Core.MyUniform;
 pub const Input = @import("Input.zig");
 pub const math = @import("math.zig");
 pub const Rotation = math.Rotation;
-const Mat4x4 = math.Mat4x4;
+pub const Mat4x4 = math.Mat4x4;
 pub const Vec2f = math.Vec2f;
 pub const Vec3f = math.Vec3f;
-pub const modelTransform = math.modelTransform;
-pub const viewTransform = math.viewTransform;
-pub const projectionTransform = math.projectionTransform;
+const modelTransform = math.modelTransform;
+const viewTransform = math.viewTransform;
+const projectionTransform = math.projectionTransform;
 
 pub const Context = @This();
-const log = std.log.scoped(.UnnamedLib);
-
 core: *Core,
 input: Input,
 should_close: bool = false,
 time: f32 = 0,
 delta_time: f32 = 0,
+
+const log = std.log.scoped(.UnnamedLib);
 
 pub fn init(
     model_filename: []const u8,
