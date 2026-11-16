@@ -26,11 +26,11 @@ const polled_keys = blk: {
 
 window: *Window,
 
-keys_down: [key_count]bool = @splat(false),
-keys_down_last_frame: [key_count]bool = @splat(false),
+keys_down: std.EnumArray(Key, bool) = undefined,
+keys_down_last_frame: std.EnumArray(Key, bool) = undefined,
 
-mouse_down: [mouse_button_count]bool = @splat(false),
-mouse_down_last_frame: [mouse_button_count]bool = @splat(false),
+mouse_down: std.EnumArray(MouseButton, bool) = undefined,
+mouse_down_last_frame: std.EnumArray(MouseButton, bool) = undefined,
 
 mouse_pos: Vec2f = @splat(0),
 mouse_delta: Vec2f = @splat(0),
@@ -48,12 +48,14 @@ pub fn init(window: *Window) !Input {
 pub fn update(input: *Input) void {
     input.keys_down_last_frame = input.keys_down;
     for (polled_keys) |key| {
-        input.keys_down[@intCast(@backingInt(key))] = glfw.getKey(input.window, key) == .press;
+        const action = input.window.getKey(key);
+        input.keys_down.set(key, action == .press);
     }
 
     input.mouse_down_last_frame = input.mouse_down;
     for (std.enums.values(MouseButton)) |button| {
-        input.mouse_down[@intCast(@backingInt(button))] = glfw.getMouseButton(input.window, button) == .press;
+        const action = input.window.getMouseButton(button);
+        input.mouse_down.set(button, action == .press);
     }
 
     const cursor = input.window.getCursorPos();
@@ -63,12 +65,11 @@ pub fn update(input: *Input) void {
 }
 
 pub fn pressed(input: *const Input, key: Key) bool {
-    const i: usize = @intCast(@backingInt(key));
-    return input.keys_down[i] and !input.keys_down_last_frame[i];
+    return input.keys_down.get(key) and !input.keys_down_last_frame.get(key);
 }
 
 pub fn held(input: *const Input, key: Key) bool {
-    return input.keys_down[@intCast(@backingInt(key))];
+    return input.keys_down.get(key);
 }
 
 pub fn released(input: *const Input, key: Key) bool {
