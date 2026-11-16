@@ -10,10 +10,6 @@ const math = @import("math.zig");
 const Rotation = math.Rotation;
 const Mat4x4 = math.Mat4x4;
 const identity_matrix = math.identity_matrix;
-const ortho_projection = math.ortho_projection;
-const transpose = math.transpose;
-const rotationMatrix = math.rotationMatrix;
-const batchMatrixMultiply = math.batchMatrixMultiply;
 const modelTransform = math.modelTransform;
 const viewTransform = math.viewTransform;
 const projectionTransform = math.projectionTransform;
@@ -21,18 +17,6 @@ const Vec2f = math.Vec2f;
 const Vec3f = math.Vec3f;
 
 const log = std.log.scoped(.UnnamedLib);
-
-const Color = @Vector(3, f32);
-const Image = struct {
-    pixels: [][4]u8,
-    width: usize,
-    height: usize,
-
-    pub fn deinit(self: Image, allocator: std.mem.Allocator) void {
-        allocator.free(self.pixels);
-    }
-};
-const TextureAndView = struct { wgpu.Texture, wgpu.TextureView };
 
 pub const SceneOptions = struct {
     pub const Model = struct {
@@ -53,7 +37,6 @@ pub const SceneOptions = struct {
     projection_transform: Projection,
 };
 
-const default_shader_data = @embedFile("default.wgsl");
 pub const MyUniform = struct {
     model_tranform: Mat4x4 = identity_matrix,
     view_transform: Mat4x4 = identity_matrix,
@@ -66,6 +49,8 @@ pub const MyUniform = struct {
 };
 const uniform_stride = MyUniform.stride();
 const background_color: Color = .{ 0.1, 0.1, 0.1 };
+
+const default_shader_data = @embedFile("default.wgsl");
 
 pub const Core = @This();
 window: *Window,
@@ -288,7 +273,9 @@ pub fn tick(core: *Core, scene_options: SceneOptions) !void {
 
     // The resize callback fires during pollEvents and updates
     // core.width/height, so the aspect ratio is fresh every frame.
-    const aspect_ratio = @as(f32, @floatFromInt(core.window.getSize()[0])) / @as(f32, @floatFromInt(core.window.getSize()[1]));
+    const window_width_f: f32 = @floatFromInt(core.window.getSize()[0]);
+    const window_height_f: f32 = @floatFromInt(core.window.getSize()[1]);
+    const aspect_ratio = window_width_f / window_height_f;
     const projection_transform = projectionTransform(
         aspect_ratio,
         scene_options.projection_transform.vertical_field_of_view,
@@ -350,25 +337,16 @@ pub fn tick(core: *Core, scene_options: SceneOptions) !void {
     _ = core.device.poll(false);
 }
 
-fn resizeWindow(core: *Core, new_width: u32, new_height: u32) void {
-    core.surface.configure(.{
-        .device = core.device,
-        .width = new_width,
-        .height = new_height,
-        .format = core.surface_format,
-        .usage = .{ .render_attachment = true },
-    });
+pub const Color = @Vector(3, f32);
+pub const Image = struct {
+    pixels: [][4]u8,
+    width: usize,
+    height: usize,
 
-    core.depth_texture.deinit();
-    core.depth_texture_view.deinit();
-    const new_depth = initDepthTexture(new_width, new_height, core.device) catch |err| {
-        log.err("resize: failed to recreate depth texture: {s}", .{@errorName(err)});
-        return;
-    };
-    core.depth_texture = new_depth.@"0";
-    core.depth_texture_view = new_depth.@"1";
-}
-
+    pub fn deinit(self: Image, allocator: std.mem.Allocator) void {
+        allocator.free(self.pixels);
+    }
+};
 pub const Vertex = struct {
     position: Vec3f,
     normal: Vec3f,
@@ -376,9 +354,7 @@ pub const Vertex = struct {
     uv: Vec2f,
     pub const buffer_layout = bufferLayout(@This());
 };
-
-// Subtasks of init()
-
+const TextureAndView = struct { wgpu.Texture, wgpu.TextureView };
 const GpuState = struct {
     queue: wgpu.Queue,
 
@@ -525,7 +501,24 @@ fn initDepthTexture(surface_width: u32, surface_height: u32, device: wgpu.Device
     return .{ depth_texture, depth_texture_view };
 }
 
-// Other functions
+fn resizeWindow(core: *Core, new_width: u32, new_height: u32) void {
+    core.surface.configure(.{
+        .device = core.device,
+        .width = new_width,
+        .height = new_height,
+        .format = core.surface_format,
+        .usage = .{ .render_attachment = true },
+    });
+
+    core.depth_texture.deinit();
+    core.depth_texture_view.deinit();
+    const new_depth = initDepthTexture(new_width, new_height, core.device) catch |err| {
+        log.err("resize: failed to recreate depth texture: {s}", .{@errorName(err)});
+        return;
+    };
+    core.depth_texture = new_depth.@"0";
+    core.depth_texture_view = new_depth.@"1";
+}
 
 fn onWindowResizeCallback(window: *Window, width: c_int, height: c_int) callconv(.c) void {
     const self: *Core = window.getUserPointer(Core) orelse return;
@@ -560,12 +553,26 @@ pub fn bufferLayout(comptime T: type) wgpu.RenderPipeline.VertexBufferLayout {
     };
 }
 
-pub fn loadTextureFromFile(
-    filename: []const u8,
-    mip_level_count: u32,
-    device: wgpu.Device,
-    allocator: std.mem.Allocator,
-) !TextureAndView {
+pub fn formatFromType(comptime T: type) wgpu.RenderPipeline.VertexFormat {
+    var type_name: []const u8 = undefined;
+    var type_size_bits: u32 = undefined;
+    return switch (@typeInfo(T)) {
+        .vector => |V| blk: {
+            switch (@typeInfo(V.child)) {
+                .float => |F| {
+                    type_name = "float";
+                    type_size_bits = F.bits;
+                },
+                else => @compileError("Unimplemented for non-float vectors"),
+            }
+            const format_name = std.fmt.comptimePrint("{s}{d}x{d}", .{ type_name, type_size_bits, V.len });
+            break :blk @field(wgpu.RenderPipeline.VertexFormat, format_name);
+        },
+        else => @compileError("Unimplemented for non-float vectors"),
+    };
+}
+
+pub fn loadTextureFromFile(filename: []const u8, mip_level_count: u32, device: wgpu.Device, allocator: std.mem.Allocator) !TextureAndView {
     const channels = 4;
     const filename_sentinel = try allocator.dupeSentinel(u8, filename, 0);
     defer allocator.free(filename_sentinel);
@@ -634,62 +641,6 @@ pub fn loadTextureFromFile(
     return .{ texture, texture_view };
 }
 
-fn formatFromType(comptime T: type) wgpu.RenderPipeline.VertexFormat {
-    var type_name: []const u8 = undefined;
-    var type_size_bits: u32 = undefined;
-    return switch (@typeInfo(T)) {
-        .vector => |V| blk: {
-            switch (@typeInfo(V.child)) {
-                .float => |F| {
-                    type_name = "float";
-                    type_size_bits = F.bits;
-                },
-                else => @compileError("Unimplemented for non-float vectors"),
-            }
-            const format_name = std.fmt.comptimePrint("{s}{d}x{d}", .{ type_name, type_size_bits, V.len });
-            break :blk @field(wgpu.RenderPipeline.VertexFormat, format_name);
-        },
-        else => @compileError("Unimplemented for non-float vectors"),
-    };
-}
-
-fn createImage(width: usize, height: usize, allocator: std.mem.Allocator) !Image {
-    const pixels = try allocator.alloc([4]u8, width * height);
-    for (0..width) |i| {
-        for (0..height) |j| {
-            const i_s: i32 = @intCast(i);
-            const j_s: i32 = @intCast(j);
-
-            const red: u8 = if (@mod((@divTrunc(i_s, 16)), 2) == @mod((@divTrunc(j_s, 16)), 2)) 255 else 0;
-            const green: u8 = if (@mod((@divTrunc(i_s - j_s, 16)), 2) == 0) 255 else 0;
-            const blue: u8 = if (@mod((@divTrunc(i_s + j_s, 16)), 2) == 0) 255 else 0;
-            const alpha: u8 = 255;
-
-            pixels[j * width + i] = .{ red, green, blue, alpha };
-        }
-    }
-    return .{ .pixels = pixels, .width = width, .height = height };
-}
-
-fn createMipMap(previous_image: Image, allocator: std.mem.Allocator) !Image {
-    const width = previous_image.width / 2;
-    const height = previous_image.height / 2;
-    const pixels = try allocator.alloc([4]u8, width * height);
-    for (0..height) |j| {
-        for (0..width) |i| {
-            const p_00: @Vector(4, u32) = previous_image.pixels[previous_image.width * (2 * j) + (2 * i)];
-            const p_01: @Vector(4, u32) = previous_image.pixels[previous_image.width * (2 * j) + (2 * i + 1)];
-            const p_10: @Vector(4, u32) = previous_image.pixels[previous_image.width * (2 * j + 1) + (2 * i)];
-            const p_11: @Vector(4, u32) = previous_image.pixels[previous_image.width * (2 * j + 1) + (2 * i + 1)];
-            const avg: @Vector(4, u8) = @intCast((p_00 + p_01 + p_10 + p_11) / @as(@Vector(4, u32), @splat(4)));
-            var rgba: [4]u8 = avg;
-            rgba[3] = 255;
-            pixels[j * width + i] = rgba;
-        }
-    }
-    return .{ .pixels = pixels, .width = width, .height = height };
-}
-
 pub fn loadOBJ(filename: []const u8, allocator: std.mem.Allocator, io: std.Io) ![]Vertex {
     const model_file = try std.Io.Dir.cwd().openFile(io, filename, .{});
     const file_len = model_file.length(io) catch unreachable;
@@ -730,6 +681,25 @@ pub fn loadOBJ(filename: []const u8, allocator: std.mem.Allocator, io: std.Io) !
     }
 
     return vertices;
+}
+
+fn createMipMap(previous_image: Image, allocator: std.mem.Allocator) !Image {
+    const width = previous_image.width / 2;
+    const height = previous_image.height / 2;
+    const pixels = try allocator.alloc([4]u8, width * height);
+    for (0..height) |j| {
+        for (0..width) |i| {
+            const p_00: @Vector(4, u32) = previous_image.pixels[previous_image.width * (2 * j) + (2 * i)];
+            const p_01: @Vector(4, u32) = previous_image.pixels[previous_image.width * (2 * j) + (2 * i + 1)];
+            const p_10: @Vector(4, u32) = previous_image.pixels[previous_image.width * (2 * j + 1) + (2 * i)];
+            const p_11: @Vector(4, u32) = previous_image.pixels[previous_image.width * (2 * j + 1) + (2 * i + 1)];
+            const avg: @Vector(4, u8) = @intCast((p_00 + p_01 + p_10 + p_11) / @as(@Vector(4, u32), @splat(4)));
+            var rgba: [4]u8 = avg;
+            rgba[3] = 255;
+            pixels[j * width + i] = rgba;
+        }
+    }
+    return .{ .pixels = pixels, .width = width, .height = height };
 }
 
 fn getNextSurfaceTextureView(surface: wgpu.Surface) !?wgpu.TextureView {
