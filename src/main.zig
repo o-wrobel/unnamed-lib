@@ -12,7 +12,7 @@ pub fn main(init: std.process.Init) !void {
 
     const window_width = 640;
     const window_height = 480;
-    var context = try ul.init(
+    var ctx = try ul.init(
         model_filename,
         texture_filename,
         window_width,
@@ -20,18 +20,18 @@ pub fn main(init: std.process.Init) !void {
         gpa,
         io,
     );
-    defer context.deinit();
-    const keyboard = &context.input.keyboard;
-    const mouse = &context.input.mouse;
+    defer ctx.deinit();
+    const keyboard = &ctx.input.keyboard;
+    const mouse = &ctx.input.mouse;
 
     const camera_rotate_speed = 4;
     var model_pitch: f32 = 0;
     var model_roll: f32 = 0;
 
-    while (!context.should_close) {
+    while (!ctx.should_close) {
         if (keyboard.pressed(.escape)) break;
 
-        const dt = context.delta_time;
+        const dt = ctx.delta_time;
         if (keyboard.held(.up)) model_pitch += camera_rotate_speed * dt;
         if (keyboard.held(.down)) model_pitch -= camera_rotate_speed * dt;
 
@@ -54,6 +54,6 @@ pub fn main(init: std.process.Init) !void {
             },
             .projection_transform = .{ .vertical_field_of_view = std.math.degreesToRadians(60) },
         };
-        try context.tick(scene_options);
+        try ctx.tick(scene_options);
     }
 }

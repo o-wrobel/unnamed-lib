@@ -5,19 +5,13 @@ const Window = glfw.Window;
 
 const Core = @import("Core.zig");
 pub const SceneOptions = Core.SceneOptions;
-pub const MyUniform = Core.MyUniform;
 pub const Input = @import("Input.zig");
 pub const math = @import("math.zig");
-pub const Rotation = math.Rotation;
-pub const Mat4x4 = math.Mat4x4;
-pub const Vec2f = math.Vec2f;
-pub const Vec3f = math.Vec3f;
-const modelTransform = math.modelTransform;
-const viewTransform = math.viewTransform;
-const projectionTransform = math.projectionTransform;
 
 pub const Context = @This();
+
 core: *Core,
+
 input: Input,
 should_close: bool = false,
 time: f32 = 0,
