@@ -21,21 +21,24 @@ pub fn main(init: std.process.Init) !void {
         io,
     );
     defer context.deinit();
-
-    const input = &context.input;
+    const keyboard = &context.input.keyboard;
+    const mouse = &context.input.mouse;
 
     const camera_rotate_speed = 4;
     var model_pitch: f32 = 0;
     var model_roll: f32 = 0;
+
     while (!context.should_close) {
-        if (input.pressed(.escape)) break;
+        if (keyboard.pressed(.escape)) break;
 
         const dt = context.delta_time;
-        if (input.held(.up)) model_pitch += camera_rotate_speed * dt;
-        if (input.held(.down)) model_pitch -= camera_rotate_speed * dt;
+        if (keyboard.held(.up)) model_pitch += camera_rotate_speed * dt;
+        if (keyboard.held(.down)) model_pitch -= camera_rotate_speed * dt;
 
-        if (input.held(.left)) model_roll -= camera_rotate_speed * dt;
-        if (input.held(.right)) model_roll += camera_rotate_speed * dt;
+        if (mouse.buttonHeld(.left)) {
+            model_roll += 0.5 * mouse.mouse_delta[0] * dt;
+            model_pitch += 0.5 * mouse.mouse_delta[1] * dt;
+        }
 
         const scene_options: ul.SceneOptions = .{
             .model_transform = .{
