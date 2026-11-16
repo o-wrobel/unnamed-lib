@@ -60,5 +60,5 @@ pub fn tick(context: *Context, scene_options: SceneOptions) !void {
     context.delta_time = @floatCast(glfw.getTime() - context.time);
     context.time = @floatCast(glfw.getTime());
     try context.core.tick(scene_options);
-    context.input.update();
+    context.input.update(context.core.window);
 }

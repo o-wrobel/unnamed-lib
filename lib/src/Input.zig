@@ -20,8 +20,6 @@ const polled_keys = blk: {
     break :blk keys;
 };
 
-window: *Window,
-
 keys_down: std.EnumArray(Key, bool) = undefined,
 keys_down_last_frame: std.EnumArray(Key, bool) = undefined,
 
@@ -36,25 +34,25 @@ pub fn init(window: *Window) !Input {
     // released before we polled, so taps shorter than one frame aren't lost.
     try glfw.setInputMode(window, .sticky_keys, true);
     try glfw.setInputMode(window, .sticky_mouse_buttons, true);
-    return .{ .window = window };
+    return .{};
 }
 
 /// Call once per frame, after `glfw.pollEvents()`. Moves this frame's state
 /// into last frame's slot, then samples the window for the new state.
-pub fn update(input: *Input) void {
+pub fn update(input: *Input, window: *Window) void {
     input.keys_down_last_frame = input.keys_down;
     for (polled_keys) |key| {
-        const action = input.window.getKey(key);
+        const action = window.getKey(key);
         input.keys_down.set(key, action == .press);
     }
 
     input.mouse_down_last_frame = input.mouse_down;
     for (std.enums.values(MouseButton)) |button| {
-        const action = input.window.getMouseButton(button);
+        const action = window.getMouseButton(button);
         input.mouse_down.set(button, action == .press);
     }
 
-    const cursor = input.window.getCursorPos();
+    const cursor = window.getCursorPos();
     const new_pos: Vec2f = .{ @floatCast(cursor[0]), @floatCast(cursor[1]) };
     input.mouse_delta = new_pos - input.mouse_pos;
     input.mouse_pos = new_pos;
