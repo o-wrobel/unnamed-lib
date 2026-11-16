@@ -30,7 +30,6 @@ pub fn init(
     texture_filename: []const u8,
     window_width: u32,
     window_height: u32,
-    comptime input_options: Input.Options,
     allocator: std.mem.Allocator,
     io: std.Io,
 ) !Context {
@@ -42,7 +41,7 @@ pub fn init(
         allocator,
         io,
     );
-    const input = try Input.init(input_options, core.window);
+    const input = try Input.init(core.window);
     log.info("Input system created", .{});
     const context: Context = .{
         .core = core,
@@ -61,4 +60,5 @@ pub fn tick(context: *Context, scene_options: SceneOptions) !void {
     context.delta_time = @floatCast(glfw.getTime() - context.time);
     context.time = @floatCast(glfw.getTime());
     try context.core.tick(scene_options);
+    context.input.update();
 }

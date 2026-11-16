@@ -1,11 +1,6 @@
 const std = @import("std");
 
 const ul = @import("engine");
-var escape_pressed: bool = false;
-
-fn callbackFunction() void {
-    escape_pressed = true;
-}
 
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
@@ -15,11 +10,6 @@ pub fn main(init: std.process.Init) !void {
     const model_filename = if (args.next()) |f| f else "cube.obj";
     const texture_filename = if (args.next()) |f| f else "texture.jpg";
 
-    const press_callbacks = comptime ul.Input.CallbackMap.init(.{
-        .escape = &callbackFunction,
-    });
-    const input_options: ul.Input.Options = .{ .press_callbacks = press_callbacks };
-
     const window_width = 640;
     const window_height = 480;
     var context = try ul.init(
@@ -27,24 +17,26 @@ pub fn main(init: std.process.Init) !void {
         texture_filename,
         window_width,
         window_height,
-        input_options,
         gpa,
         io,
     );
     defer context.deinit();
-    const input = context.input;
+
+    const input = &context.input;
 
     const camera_rotate_speed = 4;
     var model_pitch: f32 = 0;
     var model_roll: f32 = 0;
     while (!context.should_close) {
-        if (escape_pressed) break;
+        if (input.pressed(.escape)) break;
+
         const dt = context.delta_time;
         if (input.held(.up)) model_pitch += camera_rotate_speed * dt;
         if (input.held(.down)) model_pitch -= camera_rotate_speed * dt;
 
         if (input.held(.left)) model_roll -= camera_rotate_speed * dt;
         if (input.held(.right)) model_roll += camera_rotate_speed * dt;
+
         const scene_options: ul.SceneOptions = .{
             .model_transform = .{
                 .scale = 0.3,
