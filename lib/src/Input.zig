@@ -10,10 +10,6 @@ const Vec2f = math.Vec2f;
 
 pub const Input = @This();
 
-/// Large enough for every GLFW key code (the highest is `menu = 348`).
-const key_count = 512;
-const mouse_button_count = @typeInfo(MouseButton).@"enum".field_names.len;
-
 /// Every key GLFW can report. `Key.unknown` (-1) can't be polled, so it's skipped.
 const polled_keys = blk: {
     var keys: []const Key = &.{};
@@ -64,18 +60,22 @@ pub fn update(input: *Input) void {
     input.mouse_pos = new_pos;
 }
 
-pub fn pressed(input: *const Input, key: Key) bool {
-    return input.keys_down.get(key) and !input.keys_down_last_frame.get(key);
-}
+// Keyboard
 
 pub fn held(input: *const Input, key: Key) bool {
     return input.keys_down.get(key);
+}
+
+pub fn pressed(input: *const Input, key: Key) bool {
+    return input.keys_down.get(key) and !input.keys_down_last_frame.get(key);
 }
 
 pub fn released(input: *const Input, key: Key) bool {
     const i: usize = @intCast(@backingInt(key));
     return !input.keys_down[i] and input.keys_down_last_frame[i];
 }
+
+// Mouse
 
 pub fn mousePressed(input: *const Input, button: MouseButton) bool {
     const i: usize = @intCast(@backingInt(button));
