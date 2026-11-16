@@ -10,24 +10,8 @@ const Vec2f = math.Vec2f;
 
 pub const Input = @This();
 
-/// Every key GLFW can report. `Key.unknown` (-1) can't be polled, so it's skipped.
-const polled_keys = blk: {
-    var keys: []const Key = &.{};
-    for (@typeInfo(Key).@"enum".field_names) |name| {
-        const key = @field(Key, name);
-        if (@backingInt(key) >= 0) keys = keys ++ &[_]Key{key};
-    }
-    break :blk keys;
-};
-
-keys_down: std.EnumArray(Key, bool) = undefined,
-keys_down_last_frame: std.EnumArray(Key, bool) = undefined,
-
-mouse_down: std.EnumArray(MouseButton, bool) = undefined,
-mouse_down_last_frame: std.EnumArray(MouseButton, bool) = undefined,
-
-mouse_pos: Vec2f = @splat(0),
-mouse_delta: Vec2f = @splat(0),
+keyboard: Keyboard = .{},
+mouse: Mouse = .{},
 
 pub fn init(window: *Window) !Input {
     // Sticky mode keeps a press visible to glfw.getKey even if the key was
@@ -40,59 +24,69 @@ pub fn init(window: *Window) !Input {
 /// Call once per frame, after `glfw.pollEvents()`. Moves this frame's state
 /// into last frame's slot, then samples the window for the new state.
 pub fn update(input: *Input, window: *Window) void {
-    input.keys_down_last_frame = input.keys_down;
-    for (polled_keys) |key| {
+    const keyboard = &input.keyboard;
+    keyboard.previous_keys_down = keyboard.keys_down;
+    for (Keyboard.polled_keys) |key| {
         const action = window.getKey(key);
-        input.keys_down.set(key, action == .press);
+        keyboard.keys_down.set(key, action == .press);
     }
 
-    input.mouse_down_last_frame = input.mouse_down;
+    const mouse = &input.mouse;
+    mouse.previous_buttons_down = mouse.buttons_down;
     for (std.enums.values(MouseButton)) |button| {
         const action = window.getMouseButton(button);
-        input.mouse_down.set(button, action == .press);
+        mouse.buttons_down.set(button, action == .press);
     }
 
     const cursor = window.getCursorPos();
     const new_pos: Vec2f = .{ @floatCast(cursor[0]), @floatCast(cursor[1]) };
-    input.mouse_delta = new_pos - input.mouse_pos;
-    input.mouse_pos = new_pos;
+    mouse.mouse_delta = new_pos - mouse.mouse_pos;
+    mouse.mouse_pos = new_pos;
 }
 
-// Keyboard
+pub const Keyboard = struct {
+    keys_down: std.EnumArray(Key, bool) = .initFill(false),
+    previous_keys_down: std.EnumArray(Key, bool) = .initFill(false),
 
-pub fn held(input: *const Input, key: Key) bool {
-    return input.keys_down.get(key);
-}
+    /// Every key GLFW can report. `Key.unknown` (-1) can't be polled, so it's skipped.
+    const polled_keys = blk: {
+        var keys: []const Key = &.{};
+        for (@typeInfo(Key).@"enum".field_names) |name| {
+            const key = @field(Key, name);
+            if (@backingInt(key) >= 0) keys = keys ++ &[_]Key{key};
+        }
+        break :blk keys;
+    };
 
-pub fn pressed(input: *const Input, key: Key) bool {
-    return input.keys_down.get(key) and !input.keys_down_last_frame.get(key);
-}
+    pub fn held(keyboard: *const Keyboard, key: Key) bool {
+        return keyboard.keys_down.get(key);
+    }
 
-pub fn released(input: *const Input, key: Key) bool {
-    const i: usize = @intCast(@backingInt(key));
-    return !input.keys_down[i] and input.keys_down_last_frame[i];
-}
+    pub fn pressed(keyboard: *const Keyboard, key: Key) bool {
+        return keyboard.keys_down.get(key) and !keyboard.previous_keys_down.get(key);
+    }
 
-// Mouse
+    pub fn released(keyboard: *const Keyboard, key: Key) bool {
+        return !keyboard.keys_down.get(key) and keyboard.previous_keys_down.get(key);
+    }
+};
 
-pub fn mousePressed(input: *const Input, button: MouseButton) bool {
-    const i: usize = @intCast(@backingInt(button));
-    return input.mouse_down[i] and !input.mouse_down_last_frame[i];
-}
+pub const Mouse = struct {
+    buttons_down: std.EnumArray(MouseButton, bool) = .initFill(false),
+    previous_buttons_down: std.EnumArray(MouseButton, bool) = .initFill(false),
 
-pub fn mouseHeld(input: *const Input, button: MouseButton) bool {
-    return input.mouse_down[@intCast(@backingInt(button))];
-}
+    mouse_pos: Vec2f = undefined,
+    mouse_delta: Vec2f = undefined,
 
-pub fn mouseReleased(input: *const Input, button: MouseButton) bool {
-    const i: usize = @intCast(@backingInt(button));
-    return !input.mouse_down[i] and input.mouse_down_last_frame[i];
-}
+    pub fn buttonHeld(mouse: *const Mouse, button: MouseButton) bool {
+        return mouse.buttons_down.get(button);
+    }
 
-pub fn mousePos(input: *const Input) Vec2f {
-    return input.mouse_pos;
-}
+    pub fn buttonPressed(mouse: *const Mouse, button: MouseButton) bool {
+        return mouse.buttons_down.get(button) and !mouse.previous_buttons_down.get(button);
+    }
 
-pub fn mouseDelta(input: *const Input) Vec2f {
-    return input.mouse_delta;
-}
+    pub fn buttonReleased(mouse: *const Mouse, button: MouseButton) bool {
+        return !mouse.buttons_down.get(button) and mouse.previous_buttons_down.get(button);
+    }
+};
