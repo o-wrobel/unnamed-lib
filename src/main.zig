@@ -1,6 +1,20 @@
 const std = @import("std");
 
 const ul = @import("engine");
+const imgui = @import("imgui");
+
+/// Draws the UI inside the render pass. `context` is a *f32 (the model roll).
+fn drawUi(context: ?*anyopaque, raw_pass: *anyopaque) void {
+    _ = context; // autofix
+
+    // const roll: *f32 = @ptrCast(@alignCast(context.?));
+    if (imgui.begin("Cube", .{})) {
+        const framerate = imgui.io.getFramerate();
+        imgui.text("Framerate: {}", .{@ceil(framerate)});
+    }
+    imgui.end();
+    imgui.backend.draw(raw_pass);
+}
 
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
@@ -24,20 +38,32 @@ pub fn main(init: std.process.Init) !void {
     const keyboard = &ctx.input.keyboard;
     const mouse = &ctx.input.mouse;
 
-    const camera_rotate_speed = 4;
     var model_pitch: f32 = 0;
     var model_roll: f32 = 0;
+
+    // Imgui
+    imgui.init(gpa);
+    const swapchain_format: u32 = @intCast(@backingInt(ctx.core.surface_format));
+    const depth_format: u32 = @intCast(@backingInt(ctx.core.depth_texture.getFormat()));
+    imgui.backend.init(
+        ctx.core.window,
+        ctx.core.device.device,
+        swapchain_format,
+        depth_format,
+    );
+    defer imgui.deinit();
+    defer imgui.backend.deinit();
+    _ = imgui.io.addFontDefault(null);
 
     while (!ctx.should_close) {
         if (keyboard.pressed(.escape)) break;
 
         const dt = ctx.delta_time;
-        if (keyboard.held(.up)) model_pitch += camera_rotate_speed * dt;
-        if (keyboard.held(.down)) model_pitch -= camera_rotate_speed * dt;
-
-        if (mouse.buttonHeld(.left)) {
-            model_roll += 0.5 * mouse.delta[0] * dt;
-            model_pitch += 0.5 * mouse.delta[1] * dt;
+        if (!imgui.io.getWantCaptureMouse()) {
+            if (mouse.buttonHeld(.left)) {
+                model_roll += 0.5 * mouse.delta[0] * dt;
+                model_pitch += 0.5 * mouse.delta[1] * dt;
+            }
         }
 
         const scene_options: ul.SceneOptions = .{
@@ -54,6 +80,8 @@ pub fn main(init: std.process.Init) !void {
             },
             .projection_transform = .{ .vertical_field_of_view = std.math.degreesToRadians(60) },
         };
-        try ctx.tick(scene_options);
+        const fb = ctx.core.window.getFramebufferSize();
+        imgui.backend.newFrame(@intCast(fb[0]), @intCast(fb[1]));
+        try ctx.tick(scene_options, .{ .context = &model_roll, .draw = &drawUi });
     }
 }

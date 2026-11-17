@@ -5,6 +5,7 @@ const Window = glfw.Window;
 
 const Core = @import("Core.zig");
 pub const SceneOptions = Core.SceneOptions;
+pub const UiDraw = Core.UiDraw;
 pub const Input = @import("Input.zig");
 pub const math = @import("math.zig");
 
@@ -49,10 +50,10 @@ pub fn deinit(context: *Context) void {
     context.core.deinit();
 }
 
-pub fn tick(context: *Context, scene_options: SceneOptions) !void {
+pub fn tick(context: *Context, scene_options: SceneOptions, ui_draw: ?UiDraw) !void {
     context.should_close = context.core.window.shouldClose();
     context.delta_time = @floatCast(glfw.getTime() - context.time);
     context.time = @floatCast(glfw.getTime());
-    try context.core.tick(scene_options);
+    try context.core.tick(scene_options, ui_draw);
     context.input.update(context.core.window);
 }

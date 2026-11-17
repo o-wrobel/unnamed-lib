@@ -5,6 +5,7 @@
     .minimum_zig_version = "0.16.0",
     .dependencies = .{
         .lib = .{ .path = "lib" },
+        .zgui = .{ .path = "vendor/zgui" },
     },
     .paths = .{
         "build.zig",

@@ -52,6 +52,15 @@ const background_color: Color = .{ 0.1, 0.1, 0.1 };
 
 const default_shader_data = @embedFile("default.wgsl");
 
+/// Optional per-frame hook: invoked inside the render pass, right before it
+/// ends, so callers can draw UI (ImGui, debug overlays, ...) without the
+/// engine depending on any GUI library. `pass` is the raw
+/// WGPURenderPassEncoder.
+pub const UiDraw = struct {
+    context: ?*anyopaque = null,
+    draw: *const fn (?*anyopaque, *anyopaque) void,
+};
+
 pub const Core = @This();
 window: *Window,
 allocator: std.mem.Allocator,
@@ -268,7 +277,7 @@ pub fn deinit(self: *Core) void {
     self.allocator.destroy(self);
 }
 
-pub fn tick(core: *Core, scene_options: SceneOptions) !void {
+pub fn tick(core: *Core, scene_options: SceneOptions, ui_draw: ?UiDraw) !void {
     glfw.pollEvents();
 
     // The resize callback fires during pollEvents and updates
@@ -323,6 +332,9 @@ pub fn tick(core: *Core, scene_options: SceneOptions) !void {
 
     render_pass.setBindGroup(0, core.bind_group, &.{0});
     render_pass.draw(core.vertex_count, 1, 0, 0);
+
+    // Let the caller draw its UI inside this pass.
+    if (ui_draw) |ui| ui.draw(ui.context, render_pass.encoder);
 
     render_pass.end();
     render_pass.deinit();
