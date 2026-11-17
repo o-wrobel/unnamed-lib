@@ -5,7 +5,10 @@
     .minimum_zig_version = "0.16.0",
     .dependencies = .{
         .lib = .{ .path = "lib" },
-        .zgui = .{ .path = "vendor/zgui" },
+        .zgui = .{
+            .url = "git+https://github.com/o-wrobel/zgui.git#4679bdad6b781c3064c77aad8af226244c534653",
+            .hash = "zgui-0.6.0-dev--L6sZDxJbgAF-lbbf5vjTJXB_se3tTaOu27pGO76WXm3",
+        },
     },
     .paths = .{
         "build.zig",
