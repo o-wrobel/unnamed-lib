@@ -5,9 +5,15 @@ struct MyUniform {
     time: f32,
 }
 
+struct LightingUniform {
+    directions: array<vec4f, 2>,
+    colors: array<vec4f, 2>,
+}
+
 @group(0) @binding(0) var<uniform> my_uniform: MyUniform;
 @group(0) @binding(1) var gradient_texture: texture_2d<f32>;
 @group(0) @binding(2) var texture_sampler: sampler;
+@group(0) @binding(3) var<uniform> lighting: LightingUniform;
 
 struct VertexInput {
     @location(0) position: vec3f,
@@ -45,19 +51,18 @@ fn vs_main(in: VertexInput) -> VertexOutput {
 fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let normal = normalize(in.normal);
 
-    let light_color1 = vec3f(1, 0.9, 0.6);
-    let light_direction1 = vec3f(0.5, -0.9, 0.1);
+    let light_color1 = lighting.colors[0].rgb;
+    let light_direction1 = lighting.directions[0].xyz;
     let shading1 = max(0, dot(light_direction1, normal));
 
-    let light_color2 = vec3f(0.6, 0.9, 1);
-    let light_direction2 = vec3f(0.2, 0.4, 0.3);
+    let light_color2 = lighting.colors[1].rgb;
+    let light_direction2 = lighting.directions[1].xyz;
     let shading2 = max(0, dot(light_direction2, normal));
 
     let shading_color = shading1 * light_color1 + shading2 * light_color2;
 
-    // let texel_coords = vec2i(in.uv * vec2f(textureDimensions(gradient_texture)));
-    // let color = textureLoad(gradient_texture, vec2i(texel_coords), 0).rgb;
-    let color = textureSample(gradient_texture, texture_sampler, in.uv).rgb;
+    let base_color = textureSample(gradient_texture, texture_sampler, in.uv).rgb;
+    let color = shading_color * base_color;
     let linear_color = pow(color, vec3f(2.2));
     return vec4f(linear_color, 1);
 }

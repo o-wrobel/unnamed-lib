@@ -3,14 +3,21 @@ const std = @import("std");
 const ul = @import("engine");
 const imgui = @import("imgui");
 
-/// Draws the UI inside the render pass. `context` is a *f32 (the model roll).
-fn drawUi(context: ?*anyopaque, raw_pass: *anyopaque) void {
-    _ = context; // autofix
+const Control = struct {
+    colors: [2]ul.math.Vec3f,
+    directions: [2]ul.math.Vec3f,
+};
 
-    // const roll: *f32 = @ptrCast(@alignCast(context.?));
+/// Draws the UI inside the render pass. `context` is a *Control.
+fn drawUi(context: ?*anyopaque, raw_pass: *anyopaque) void {
+    const control: *Control = @ptrCast(@alignCast(context));
     if (imgui.begin("Cube", .{})) {
         const framerate = imgui.io.getFramerate();
         imgui.text("Framerate: {}", .{@ceil(framerate)});
+        _ = imgui.colorEdit3("Color #1", .{ .col = @ptrCast(&control.colors[0]) });
+        _ = imgui.dragFloat3("Direction #1", .{ .v = @ptrCast(&control.directions[0]) });
+        _ = imgui.colorEdit3("Color #2", .{ .col = @ptrCast(&control.colors[1]) });
+        _ = imgui.dragFloat3("Direction #2", .{ .v = @ptrCast(&control.directions[1]) });
     }
     imgui.end();
     imgui.backend.draw(raw_pass);
@@ -40,6 +47,17 @@ pub fn main(init: std.process.Init) !void {
 
     var camera_pitch: f32 = std.math.degreesToRadians(115);
     var camera_roll: f32 = 0;
+
+    var control: Control = .{
+        .directions = .{
+            .{ 1.0, -0.9, 0.1 },
+            .{ 0.2, 0.4, 0.3 },
+        },
+        .colors = .{
+            .{ 1, 0.9, 0.8 },
+            .{ 1, 0.4, 0.1 },
+        },
+    };
 
     // Imgui
     imgui.init(gpa);
@@ -76,9 +94,13 @@ pub fn main(init: std.process.Init) !void {
                 },
             },
             .projection_transform = .{ .vertical_field_of_view = std.math.degreesToRadians(60) },
+            .lighting = .{
+                .directions = control.directions,
+                .colors = control.colors,
+            },
         };
         const fb = ctx.core.window.getFramebufferSize();
         imgui.backend.newFrame(@intCast(fb[0]), @intCast(fb[1]));
-        try ctx.tick(scene_options, .{ .context = &camera_roll, .draw = &drawUi });
+        try ctx.tick(scene_options, .{ .context = &control, .draw = &drawUi });
     }
 }

@@ -15,8 +15,13 @@ const viewTransform = math.viewTransform;
 const projectionTransform = math.projectionTransform;
 const Vec2f = math.Vec2f;
 const Vec3f = math.Vec3f;
+const Vec4f = @Vector(4, f32); // Temp
 
 const log = std.log.scoped(.UnnamedLib);
+
+fn vec4(v: Vec3f, w: f32) Vec4f {
+    return .{ v[0], v[1], v[2], w };
+}
 
 pub const SceneOptions = struct {
     pub const Model = struct {
@@ -32,9 +37,14 @@ pub const SceneOptions = struct {
         /// In radians
         vertical_field_of_view: f32,
     };
+    pub const Lighting = struct {
+        directions: [2]Vec3f = .{ .{ 1.0, -0.9, 0.1 }, .{ 0.2, 0.4, 0.3 } },
+        colors: [2]Vec3f = .{ .{ 1, 0.9, 0.8 }, .{ 1, 0.4, 0.1 } },
+    };
     model_transform: Model,
     view_transform: View,
     projection_transform: Projection,
+    lighting: Lighting = .{},
 };
 
 pub const MyUniform = struct {
@@ -50,6 +60,11 @@ pub const MyUniform = struct {
 const uniform_stride = MyUniform.stride();
 const background_color: Color = .{ 0.1, 0.1, 0.1 };
 
+pub const LightingUniform = struct {
+    directions: [2]Vec4f,
+    colors: [2]Vec4f,
+};
+
 const default_shader_data = @embedFile("default.wgsl");
 
 /// Optional per-frame hook: invoked inside the render pass, right before it
@@ -60,6 +75,20 @@ pub const UiDraw = struct {
     context: ?*anyopaque = null,
     draw: *const fn (?*anyopaque, *anyopaque) void,
 };
+
+/// Called by wgpu whenever an error reaches the queue/device without being
+/// captured by an error scope. Logging it here turns the terse "pipeline is
+/// invalid" submit-time panic into the actual validation message.
+fn onUncapturedError(err_type: wgpu.c.WGPUErrorType, message: []const u8) void {
+    const name: []const u8 = switch (err_type) {
+        wgpu.c.WGPUErrorType_Validation => "Validation",
+        wgpu.c.WGPUErrorType_OutOfMemory => "OutOfMemory",
+        wgpu.c.WGPUErrorType_Internal => "Internal",
+        wgpu.c.WGPUErrorType_Unknown => "Unknown",
+        else => "NoError/Other",
+    };
+    log.err("wgpu {s} error: {s}", .{ name, message });
+}
 
 pub const Core = @This();
 window: *Window,
@@ -82,6 +111,7 @@ depth_texture_view: wgpu.TextureView,
 texture: wgpu.Texture,
 
 uniform_buffer: wgpu.Buffer,
+lighting_uniform_buffer: wgpu.Buffer,
 
 pub fn init(
     model_filename: []const u8,
@@ -107,7 +137,10 @@ pub fn init(
     const adapter = try instance.requestAdapterSync(.{});
     defer adapter.deinit();
 
-    const device = try adapter.requestDeviceSync(.{});
+    const device = try adapter.requestDeviceSync(.{
+        .label = "My device",
+        .uncaptured_error_callback = onUncapturedError,
+    });
     var init_gpu_future = try io.concurrent(initGpu, .{
         texture_filename,
         window_width,
@@ -142,6 +175,7 @@ pub fn init(
     const bind_group_layout = result.bind_group_layout;
     const shader_module = result.shader;
     const uniform_buffer = result.uniform_buffer;
+    const lighting_uniform_buffer = result.lighting_uniform_buffer;
 
     // Get native window handle and create a wgpu surface
     var source = wgpu.c.WGPUSurfaceSourceWaylandSurface{
@@ -224,23 +258,20 @@ pub fn init(
     core.* = .{
         .window = window,
         .allocator = allocator,
-
         .device = device,
         .queue = queue,
         .surface = surface,
         .surface_format = surface_format,
         .bind_group = bind_group,
         .render_pipeline = render_pipeline,
-
         .vertex_buffer = vertex_buffer,
         .vertex_count = vertex_count,
         .index_count = @intCast(vertices.len),
-
         .texture = texture,
         .depth_texture = depth_texture,
         .depth_texture_view = depth_texture_view,
-
         .uniform_buffer = uniform_buffer,
+        .lighting_uniform_buffer = lighting_uniform_buffer,
     };
 
     // Hand the heap-allocated Device to GLFW so callbacks can reach it.
@@ -302,6 +333,23 @@ pub fn tick(core: *Core, scene_options: SceneOptions, ui_draw: ?UiDraw) !void {
         .projection_transform = projection_transform,
     };
     core.queue.writeBuffer(MyUniform, core.uniform_buffer, 0, &.{uniform});
+
+    const lighting_uniform: LightingUniform = .{
+        .directions = .{
+            vec4(scene_options.lighting.directions[0], 0),
+            vec4(scene_options.lighting.directions[1], 0),
+        },
+        .colors = .{
+            vec4(scene_options.lighting.colors[0], 1),
+            vec4(scene_options.lighting.colors[1], 1),
+        },
+    };
+    core.queue.writeBuffer(
+        LightingUniform,
+        core.lighting_uniform_buffer,
+        0,
+        &.{lighting_uniform},
+    );
 
     const target_view = try getNextSurfaceTextureView(core.surface) orelse unreachable;
     const encoder = try core.device.createCommandEncoder(.{ .label = "My command encoder" });
@@ -378,6 +426,7 @@ const GpuState = struct {
 
     shader: wgpu.ShaderModule,
     uniform_buffer: wgpu.Buffer,
+    lighting_uniform_buffer: wgpu.Buffer,
 };
 
 fn initGpu(
@@ -401,6 +450,14 @@ fn initGpu(
             .usage = .{ .copy_dst = true, .uniform = true },
         });
         break :init uniform_buffer;
+    };
+
+    const lighting_uniform_buffer = init: {
+        const lighting_uniform_buffer = try device.createBuffer(.{
+            .size = 2 * uniform_stride,
+            .usage = .{ .copy_dst = true, .uniform = true },
+        });
+        break :init lighting_uniform_buffer;
     };
 
     const shader_module: wgpu.ShaderModule = try .init(device.device, .{ .wgsl = default_shader_data });
@@ -449,11 +506,21 @@ fn initGpu(
         .visibility = .{ .fragment = true },
         .sampler = .{ .binding_type = .filtering },
     };
+    const lighting_uniform_binding_layout: wgpu.BindGroupLayout.Entry = .{
+        .binding = 3,
+        .visibility = .{ .fragment = true },
+        .buffer = .{
+            .binding_type = .uniform,
+            .min_binding_size = @sizeOf(LightingUniform),
+            // .has_dynamic_offset = true,
+        },
+    };
     const bind_group_layout = try device.createBindGroupLayout(.{
         .entries = &.{
             uniform_binding_layout,
             texture_binding_layout,
             sampler_binding_layout,
+            lighting_uniform_binding_layout,
         },
     });
 
@@ -472,6 +539,11 @@ fn initGpu(
             .binding = 2,
             .sampler = sampler,
         };
+        const lighting_uniform_binding: wgpu.BindGroup.Entry = .{
+            .binding = 3,
+            .buffer = lighting_uniform_buffer,
+            .size = @sizeOf(LightingUniform),
+        };
         break :init try device.createBindGroup(.{
             .label = "My bind group",
             .layout = bind_group_layout,
@@ -479,6 +551,7 @@ fn initGpu(
                 uniform_binding,
                 texture_binding,
                 sampler_binding,
+                lighting_uniform_binding,
             },
         });
     };
@@ -492,6 +565,7 @@ fn initGpu(
 
         .shader = shader_module,
         .uniform_buffer = uniform_buffer,
+        .lighting_uniform_buffer = lighting_uniform_buffer,
     };
 }
 
@@ -680,11 +754,11 @@ pub fn loadOBJ(filename: []const u8, allocator: std.mem.Allocator, io: std.Io) !
                 -scene.attributes.normals.ptr[3 * ni + 2], // Assuming Y represents up
                 scene.attributes.normals.ptr[3 * ni + 1],
             },
-            .color = .{
+            .color = if (scene.attributes.colors.count > 0) .{
                 scene.attributes.colors.ptr[3 * vi + 0],
                 scene.attributes.colors.ptr[3 * vi + 1],
                 scene.attributes.colors.ptr[3 * vi + 2],
-            },
+            } else .{ 1, 1, 1 },
             .uv = .{
                 scene.attributes.texcoords.ptr[2 * ti + 0],
                 1 - scene.attributes.texcoords.ptr[2 * ti + 1],
