@@ -36,8 +36,8 @@ pub fn main(init: std.process.Init) !void {
         if (keyboard.held(.down)) model_pitch -= camera_rotate_speed * dt;
 
         if (mouse.buttonHeld(.left)) {
-            model_roll += 0.5 * mouse.mouse_delta[0] * dt;
-            model_pitch += 0.5 * mouse.mouse_delta[1] * dt;
+            model_roll += 0.5 * mouse.delta[0] * dt;
+            model_pitch += 0.5 * mouse.delta[1] * dt;
         }
 
         const scene_options: ul.SceneOptions = .{

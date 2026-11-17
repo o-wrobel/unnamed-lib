@@ -40,8 +40,8 @@ pub fn update(input: *Input, window: *Window) void {
 
     const cursor = window.getCursorPos();
     const new_pos: Vec2f = .{ @floatCast(cursor[0]), @floatCast(cursor[1]) };
-    mouse.mouse_delta = new_pos - mouse.mouse_pos;
-    mouse.mouse_pos = new_pos;
+    mouse.delta = new_pos - mouse.position;
+    mouse.position = new_pos;
 }
 
 pub const Keyboard = struct {
@@ -75,8 +75,8 @@ pub const Mouse = struct {
     buttons_down: std.EnumArray(MouseButton, bool) = .initFill(false),
     previous_buttons_down: std.EnumArray(MouseButton, bool) = .initFill(false),
 
-    mouse_pos: Vec2f = undefined,
-    mouse_delta: Vec2f = undefined,
+    position: Vec2f = undefined,
+    delta: Vec2f = undefined,
 
     pub fn buttonHeld(mouse: *const Mouse, button: MouseButton) bool {
         return mouse.buttons_down.get(button);
