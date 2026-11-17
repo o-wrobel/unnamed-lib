@@ -38,8 +38,8 @@ pub fn main(init: std.process.Init) !void {
     const keyboard = &ctx.input.keyboard;
     const mouse = &ctx.input.mouse;
 
-    var model_pitch: f32 = 0;
-    var model_roll: f32 = 0;
+    var camera_pitch: f32 = std.math.degreesToRadians(115);
+    var camera_roll: f32 = 0;
 
     // Imgui
     imgui.init(gpa);
@@ -61,27 +61,24 @@ pub fn main(init: std.process.Init) !void {
         const dt = ctx.delta_time;
         if (!imgui.io.getWantCaptureMouse()) {
             if (mouse.buttonHeld(.left)) {
-                model_roll += 0.5 * mouse.delta[0] * dt;
-                model_pitch += 0.5 * mouse.delta[1] * dt;
+                camera_roll += 0.5 * mouse.delta[0] * dt;
+                camera_pitch += 0.5 * mouse.delta[1] * dt;
             }
         }
 
         const scene_options: ul.SceneOptions = .{
-            .model_transform = .{
-                .scale = 0.3,
-                .rotation_along_origin = .{
-                    .roll = model_roll,
-                    .pitch = model_pitch,
-                },
-            },
+            .model_transform = .{ .scale = 0.3 },
             .view_transform = .{
                 .focal_point = .{ 0, 0, -1.2 },
-                .rotation = .{ .pitch = std.math.degreesToRadians(115) },
+                .rotation = .{
+                    .pitch = camera_pitch,
+                    .roll = camera_roll,
+                },
             },
             .projection_transform = .{ .vertical_field_of_view = std.math.degreesToRadians(60) },
         };
         const fb = ctx.core.window.getFramebufferSize();
         imgui.backend.newFrame(@intCast(fb[0]), @intCast(fb[1]));
-        try ctx.tick(scene_options, .{ .context = &model_roll, .draw = &drawUi });
+        try ctx.tick(scene_options, .{ .context = &camera_roll, .draw = &drawUi });
     }
 }
