@@ -52,11 +52,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let normal = normalize(in.normal);
 
     let light_color1 = lighting.colors[0].rgb;
-    let light_direction1 = lighting.directions[0].xyz;
+    let light_direction1 = normalize(lighting.directions[0].xyz);
     let shading1 = max(0, dot(light_direction1, normal));
 
     let light_color2 = lighting.colors[1].rgb;
-    let light_direction2 = lighting.directions[1].xyz;
+    let light_direction2 = normalize(lighting.directions[1].xyz);
     let shading2 = max(0, dot(light_direction2, normal));
 
     let shading_color = shading1 * light_color1 + shading2 * light_color2;
