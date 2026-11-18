@@ -70,10 +70,12 @@ const default_shader_data = @embedFile("default.wgsl");
 /// Optional per-frame hook: invoked inside the render pass, right before it
 /// ends, so callers can draw UI (ImGui, debug overlays, ...) without the
 /// engine depending on any GUI library. `pass` is the raw
-/// WGPURenderPassEncoder.
+/// WGPURenderPassEncoder, and `width`/`height` are the actual render-target
+/// size for this frame (they can differ from the window size right after a
+/// resize), so UI libraries must use them instead of re-querying the window.
 pub const UiDraw = struct {
     context: ?*anyopaque = null,
-    draw: *const fn (?*anyopaque, *anyopaque) void,
+    draw: *const fn (?*anyopaque, *anyopaque, u32, u32) void,
 };
 
 /// Called by wgpu whenever an error reaches the queue/device without being
@@ -351,12 +353,12 @@ pub fn tick(core: *Core, scene_options: SceneOptions, ui_draw: ?UiDraw) !void {
         &.{lighting_uniform},
     );
 
-    const target_view = try getNextSurfaceTextureView(core.surface) orelse unreachable;
+    const target = try getNextSurfaceTextureView(core.surface) orelse return;
     const encoder = try core.device.createCommandEncoder(.{ .label = "My command encoder" });
     defer encoder.deinit();
 
     const color_attachment: wgpu.RenderPassEncoder.ColorAttachment = .{
-        .view = target_view,
+        .view = target.view,
         .clear_value = color(background_color),
         .load_op = .clear,
         .store_op = .store,
@@ -381,8 +383,10 @@ pub fn tick(core: *Core, scene_options: SceneOptions, ui_draw: ?UiDraw) !void {
     render_pass.setBindGroup(0, core.bind_group, &.{0});
     render_pass.draw(core.vertex_count, 1, 0, 0);
 
-    // Let the caller draw its UI inside this pass.
-    if (ui_draw) |ui| ui.draw(ui.context, render_pass.encoder);
+    // Let the caller draw its UI inside this pass. Pass the actual target size:
+    // after a resize the window may report a size that does not match the
+    // surface texture we are rendering into yet.
+    if (ui_draw) |ui| ui.draw(ui.context, render_pass.encoder, target.width, target.height);
 
     render_pass.end();
     render_pass.deinit();
@@ -393,7 +397,7 @@ pub fn tick(core: *Core, scene_options: SceneOptions, ui_draw: ?UiDraw) !void {
 
     try core.surface.present();
 
-    target_view.deinit();
+    target.view.deinit();
     _ = core.device.poll(false);
 }
 
@@ -788,7 +792,13 @@ fn createMipMap(previous_image: Image, allocator: std.mem.Allocator) !Image {
     return .{ .pixels = pixels, .width = width, .height = height };
 }
 
-fn getNextSurfaceTextureView(surface: wgpu.Surface) !?wgpu.TextureView {
+const SurfaceTarget = struct {
+    view: wgpu.TextureView,
+    width: u32,
+    height: u32,
+};
+
+fn getNextSurfaceTextureView(surface: wgpu.Surface) !?SurfaceTarget {
     const result = surface.getCurrentTexture();
 
     const surface_texture = init: switch (result) {
@@ -807,7 +817,7 @@ fn getNextSurfaceTextureView(surface: wgpu.Surface) !?wgpu.TextureView {
             std.debug.panic("Got surface texture result: {}", .{result});
         },
     };
-    return try wgpu.TextureView.init(
+    const view = try wgpu.TextureView.init(
         surface_texture.texture,
         wgpu.TextureView.Descriptor{
             .label = "Surface texture view",
@@ -816,6 +826,11 @@ fn getNextSurfaceTextureView(surface: wgpu.Surface) !?wgpu.TextureView {
             .aspect = .all,
         },
     );
+    return .{
+        .view = view,
+        .width = surface_texture.getWidth(),
+        .height = surface_texture.getHeight(),
+    };
 }
 
 fn color(c: Color) wgpu.Color {

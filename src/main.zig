@@ -8,8 +8,14 @@ const Control = struct {
     directions: [2]ul.math.Vec3f,
 };
 
-/// Draws the UI inside the render pass. `context` is a *Control.
-fn drawUi(context: ?*anyopaque, raw_pass: *anyopaque) void {
+/// Draws the UI inside the render pass. `context` is a *Control, and
+/// `width`/`height` are the render target's actual pixel size.
+fn drawUi(context: ?*anyopaque, raw_pass: *anyopaque, width: u32, height: u32) void {
+    // Start the ImGui frame with the target size we are actually rendering
+    // into. Doing this here (after the surface texture is acquired) avoids
+    // stale display sizes on the frame where the window is resized.
+    imgui.backend.newFrame(width, height);
+
     const control: *Control = @ptrCast(@alignCast(context));
     if (imgui.begin("Cube", .{})) {
         const framerate = imgui.io.getFramerate();
@@ -99,8 +105,6 @@ pub fn main(init: std.process.Init) !void {
                 .colors = control.colors,
             },
         };
-        const fb = ctx.core.window.getFramebufferSize();
-        imgui.backend.newFrame(@intCast(fb[0]), @intCast(fb[1]));
         try ctx.tick(scene_options, .{ .context = &control, .draw = &drawUi });
     }
 }
