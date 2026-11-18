@@ -15,13 +15,8 @@ const viewTransform = math.viewTransform;
 const projectionTransform = math.projectionTransform;
 const Vec2f = math.Vec2f;
 const Vec3f = math.Vec3f;
-const Vec4f = @Vector(4, f32); // Temp
 
 const log = std.log.scoped(.UnnamedLib);
-
-fn vec4(v: Vec3f, w: f32) Vec4f {
-    return .{ v[0], v[1], v[2], w };
-}
 
 pub const SceneOptions = struct {
     pub const Model = struct {
@@ -47,23 +42,24 @@ pub const SceneOptions = struct {
     lighting: Lighting = .{},
 };
 
-pub const MyUniform = struct {
-    model_tranform: Mat4x4 = identity_matrix,
-    view_transform: Mat4x4 = identity_matrix,
-    projection_transform: Mat4x4 = identity_matrix,
+pub const MyUniform = extern struct {
+    model_tranform: Mat4x4 align(16) = identity_matrix,
+    view_transform: Mat4x4 align(16) = identity_matrix,
+    projection_transform: Mat4x4 align(16) = identity_matrix,
     time: f32 = 0,
-    _pad: [3]f32 = @splat(0),
+
     pub fn stride() comptime_int {
         return @sizeOf(@This());
     }
 };
+
+pub const LightingUniform = extern struct {
+    directions: [2][3]f32 align(16),
+    colors: [2][3]f32 align(16),
+};
+
 const uniform_stride = MyUniform.stride();
 const background_color: Color = .{ 0.1, 0.1, 0.1 };
-
-pub const LightingUniform = struct {
-    directions: [2]Vec4f,
-    colors: [2]Vec4f,
-};
 
 const default_shader_data = @embedFile("default.wgsl");
 
@@ -338,12 +334,12 @@ pub fn tick(core: *Core, scene_options: SceneOptions, ui_draw: ?UiDraw) !void {
 
     const lighting_uniform: LightingUniform = .{
         .directions = .{
-            vec4(scene_options.lighting.directions[0], 0),
-            vec4(scene_options.lighting.directions[1], 0),
+            scene_options.lighting.directions[0],
+            scene_options.lighting.directions[1],
         },
         .colors = .{
-            vec4(scene_options.lighting.colors[0], 1),
-            vec4(scene_options.lighting.colors[1], 1),
+            scene_options.lighting.colors[0],
+            scene_options.lighting.colors[1],
         },
     };
     core.queue.writeBuffer(

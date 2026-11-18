@@ -6,8 +6,8 @@ struct MyUniform {
 }
 
 struct LightingUniform {
-    directions: array<vec4f, 2>,
-    colors: array<vec4f, 2>,
+    directions: array<vec3f, 2>,
+    colors: array<vec3f, 2>,
 }
 
 @group(0) @binding(0) var<uniform> my_uniform: MyUniform;
