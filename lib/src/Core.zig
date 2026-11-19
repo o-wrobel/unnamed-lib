@@ -32,6 +32,9 @@ pub const SceneOptions = struct {
     pub const Lighting = struct {
         directions: [2]Vec3f = .{ .{ 1.0, -0.9, 0.1 }, .{ 0.2, 0.4, 0.3 } },
         colors: [2]Vec3f = .{ .{ 1, 0.9, 0.8 }, .{ 1, 0.4, 0.1 } },
+        hardness: f32 = 2,
+        diffuse_strength: f32 = 1,
+        specular_strength: f32 = 0.5,
     };
     model_transform: Model,
     projection_transform: Projection,
@@ -43,7 +46,8 @@ pub const MyUniform = extern struct {
     model_tranform: Mat4x4 align(16) = identity_matrix,
     view_transform: Mat4x4 align(16) = identity_matrix,
     projection_transform: Mat4x4 align(16) = identity_matrix,
-    time: f32 = 0,
+    camera_world_position: [3]f32,
+    time: f32 align(16) = 0,
 
     pub fn stride() comptime_int {
         return @sizeOf(@This());
@@ -51,8 +55,11 @@ pub const MyUniform = extern struct {
 };
 
 pub const LightingUniform = extern struct {
-    directions: [2][3]f32 align(16),
-    colors: [2][3]f32 align(16),
+    directions: [2][4]f32 align(16),
+    colors: [2][4]f32 align(16),
+    hardness: f32 = 2,
+    diffuse_strength: f32 = 1,
+    specular_strength: f32 = 0.5,
 };
 
 const uniform_stride = MyUniform.stride();
@@ -322,19 +329,23 @@ pub fn tick(core: *Core, scene_options: SceneOptions, ui_draw: ?UiDraw) !void {
             scene_options.model_transform.rotation_along_origin,
         ),
         .view_transform = scene_options.camera.viewTransform(),
+        .camera_world_position = scene_options.camera.position(),
         .projection_transform = projection_transform,
     };
     core.queue.writeBuffer(MyUniform, core.uniform_buffer, 0, &.{uniform});
 
     const lighting_uniform: LightingUniform = .{
         .directions = .{
-            scene_options.lighting.directions[0],
-            scene_options.lighting.directions[1],
+            vec4(scene_options.lighting.directions[0], 0),
+            vec4(scene_options.lighting.directions[1], 0),
         },
         .colors = .{
-            scene_options.lighting.colors[0],
-            scene_options.lighting.colors[1],
+            vec4(scene_options.lighting.colors[0], 1),
+            vec4(scene_options.lighting.colors[1], 1),
         },
+        .hardness = scene_options.lighting.hardness,
+        .diffuse_strength = scene_options.lighting.diffuse_strength,
+        .specular_strength = scene_options.lighting.specular_strength,
     };
     core.queue.writeBuffer(
         LightingUniform,
@@ -822,4 +833,8 @@ fn getNextSurfaceTextureView(surface: wgpu.Surface) !?SurfaceTarget {
 
 fn color(c: Color) wgpu.Color {
     return .{ .r = c[0], .g = c[1], .b = c[2], .a = 1 };
+}
+
+fn vec4(v: Vec3f, w: f32) [4]f32 {
+    return .{ v[0], v[1], v[2], w };
 }

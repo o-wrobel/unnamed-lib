@@ -6,6 +6,9 @@ const imgui = @import("imgui");
 const Control = struct {
     colors: [2]ul.math.Vec3f,
     directions: [2]ul.math.Vec3f,
+    hardness: f32,
+    diffuse_strength: f32,
+    specular_strength: f32,
 };
 
 /// Draws the UI inside the render pass. `context` is a *Control, and
@@ -24,6 +27,21 @@ fn drawUi(context: ?*anyopaque, raw_pass: *anyopaque, width: u32, height: u32) v
         _ = imgui.dragFloat3("Direction #1", .{ .v = @ptrCast(&control.directions[0]) });
         _ = imgui.colorEdit3("Color #2", .{ .col = @ptrCast(&control.colors[1]) });
         _ = imgui.dragFloat3("Direction #2", .{ .v = @ptrCast(&control.directions[1]) });
+        _ = imgui.dragFloat("Hardness", .{
+            .v = &control.hardness,
+            .min = 0,
+            .speed = 0.1,
+        });
+        _ = imgui.dragFloat("Diffuse strength", .{
+            .v = &control.diffuse_strength,
+            .min = 0,
+            .speed = 0.1,
+        });
+        _ = imgui.dragFloat("Specular strength", .{
+            .v = &control.specular_strength,
+            .min = 0,
+            .speed = 0.1,
+        });
     }
     imgui.end();
     imgui.backend.draw(raw_pass);
@@ -60,6 +78,9 @@ pub fn main(init: std.process.Init) !void {
             .{ 1, 0.9, 0.8 },
             .{ 1, 0.4, 0.1 },
         },
+        .hardness = 2,
+        .diffuse_strength = 1,
+        .specular_strength = 0.5,
     };
 
     // Imgui
@@ -103,6 +124,9 @@ pub fn main(init: std.process.Init) !void {
             .lighting = .{
                 .directions = control.directions,
                 .colors = control.colors,
+                .hardness = control.hardness,
+                .diffuse_strength = control.diffuse_strength,
+                .specular_strength = control.specular_strength,
             },
         };
         try ctx.tick(scene_options, .{ .context = &control, .draw = &drawUi });

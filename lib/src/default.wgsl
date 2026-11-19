@@ -2,12 +2,16 @@ struct MyUniform {
     model_transform: mat4x4f,
     view_tranform: mat4x4f,
     projection_transform: mat4x4f,
+    camera_world_position: vec3f,
     time: f32,
 }
 
 struct LightingUniform {
     directions: array<vec3f, 2>,
     colors: array<vec3f, 2>,
+    hardness: f32,
+    diffuse_strength: f32,
+    specular_strength: f32,
 }
 
 @group(0) @binding(0) var<uniform> my_uniform: MyUniform;
@@ -27,6 +31,7 @@ struct VertexOutput {
     @location(0) color: vec3f,
     @location(1) normal: vec3f,
     @location(2) uv: vec2f,
+    @location(3) view_direction: vec3f,
 }
 
 @vertex
@@ -40,28 +45,34 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     let projection = my_uniform.projection_transform;
 
     var out: VertexOutput;
-    out.position = (projection * view * model * vec4f(pos, 1));
+    let world_position = model * vec4f(in.position, 1);
+    out.position = (projection * view * world_position);
     out.color = in.color;
     out.normal = (my_uniform.model_transform * vec4f(in.normal, 0)).xyz;
     out.uv = in.uv;
+    out.view_direction = my_uniform.camera_world_position - world_position.xyz;
     return out;
 }
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4f {
+    let V = normalize(in.view_direction);
+
     let normal = normalize(in.normal);
 
-    let light_color1 = lighting.colors[0].rgb;
-    let light_direction1 = normalize(lighting.directions[0].xyz);
-    let shading1 = max(0, dot(light_direction1, normal));
-
-    let light_color2 = lighting.colors[1].rgb;
-    let light_direction2 = normalize(lighting.directions[1].xyz);
-    let shading2 = max(0, dot(light_direction2, normal));
-
-    let shading_color = shading1 * light_color1 + shading2 * light_color2;
-
     let base_color = textureSample(gradient_texture, texture_sampler, in.uv).rgb;
+    var shading_color: vec3f = vec3f(0);
+    for (var i: u32 = 0; i < 2; i++) {
+        let light_direction = normalize(lighting.directions[i].xyz);
+        let R = reflect(-light_direction, normal);
+        let RoV = max(0.0, dot(R, V));
+        let specular = pow(RoV, lighting.hardness);
+        let light_color = lighting.colors[i].rgb;
+        let diffuse = max(0, dot(light_direction, normal));
+        shading_color += lighting.diffuse_strength * diffuse * light_color
+            + lighting.specular_strength * specular;
+    }
+
     let color = shading_color * base_color;
     let linear_color = pow(color, vec3f(2.2));
     return vec4f(linear_color, 1);
