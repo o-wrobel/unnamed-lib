@@ -51,9 +51,6 @@ pub fn main(init: std.process.Init) !void {
     const keyboard = &ctx.input.keyboard;
     const mouse = &ctx.input.mouse;
 
-    var camera_pitch: f32 = std.math.degreesToRadians(115);
-    var camera_roll: f32 = 0;
-
     var control: Control = .{
         .directions = .{
             .{ 1.0, -0.9, 0.1 },
@@ -79,6 +76,10 @@ pub fn main(init: std.process.Init) !void {
     defer imgui.backend.deinit();
     _ = imgui.io.addFontDefault(null);
 
+    var camera_pitch: f32 = std.math.degreesToRadians(0);
+    var camera_roll: f32 = std.math.degreesToRadians(0);
+    var camera_zoom: f32 = -1.2;
+
     while (!ctx.should_close) {
         if (keyboard.pressed(.escape)) break;
 
@@ -89,15 +90,14 @@ pub fn main(init: std.process.Init) !void {
                 camera_pitch += 0.5 * mouse.delta[1] * dt;
             }
         }
+        if (keyboard.held(.up)) camera_zoom += 4 * dt;
+        if (keyboard.held(.down)) camera_zoom -= 4 * dt;
 
         const scene_options: ul.SceneOptions = .{
             .model_transform = .{ .scale = 0.3 },
-            .view_transform = .{
-                .focal_point = .{ 0, 0, -1.2 },
-                .rotation = .{
-                    .pitch = camera_pitch,
-                    .roll = camera_roll,
-                },
+            .camera = .{
+                .angles = .{ camera_roll, camera_pitch },
+                .zoom = camera_zoom,
             },
             .projection_transform = .{ .vertical_field_of_view = std.math.degreesToRadians(60) },
             .lighting = .{

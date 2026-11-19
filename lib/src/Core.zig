@@ -11,22 +11,19 @@ const Rotation = math.Rotation;
 const Mat4x4 = math.Mat4x4;
 const identity_matrix = math.identity_matrix;
 const modelTransform = math.modelTransform;
-const viewTransform = math.viewTransform;
 const projectionTransform = math.projectionTransform;
 const Vec2f = math.Vec2f;
 const Vec3f = math.Vec3f;
 
 const log = std.log.scoped(.UnnamedLib);
 
+pub const Camera = @import("Camera.zig");
+
 pub const SceneOptions = struct {
     pub const Model = struct {
         scale: f32 = 1,
         translation: Vec3f = @splat(0),
         rotation_along_origin: Rotation = .{},
-    };
-    pub const View = struct {
-        focal_point: Vec3f = @splat(0),
-        rotation: Rotation = .{},
     };
     pub const Projection = struct {
         /// In radians
@@ -37,8 +34,8 @@ pub const SceneOptions = struct {
         colors: [2]Vec3f = .{ .{ 1, 0.9, 0.8 }, .{ 1, 0.4, 0.1 } },
     };
     model_transform: Model,
-    view_transform: View,
     projection_transform: Projection,
+    camera: Camera,
     lighting: Lighting = .{},
 };
 
@@ -324,10 +321,7 @@ pub fn tick(core: *Core, scene_options: SceneOptions, ui_draw: ?UiDraw) !void {
             scene_options.model_transform.translation,
             scene_options.model_transform.rotation_along_origin,
         ),
-        .view_transform = viewTransform(
-            scene_options.view_transform.focal_point,
-            scene_options.view_transform.rotation,
-        ),
+        .view_transform = scene_options.camera.viewTransform(),
         .projection_transform = projection_transform,
     };
     core.queue.writeBuffer(MyUniform, core.uniform_buffer, 0, &.{uniform});
@@ -727,6 +721,11 @@ pub fn loadTextureFromFile(filename: []const u8, mip_level_count: u32, device: w
     return .{ texture, texture_view };
 }
 
+/// OBJ files are Y-up; our world is Z-up.
+fn objToWorld(ptr: [*c]f32, i: usize) Vec3f {
+    return .{ ptr[3 * i + 0], -ptr[3 * i + 2], ptr[3 * i + 1] };
+}
+
 pub fn loadOBJ(filename: []const u8, allocator: std.mem.Allocator, io: std.Io) ![]Vertex {
     const model_file = try std.Io.Dir.cwd().openFile(io, filename, .{});
     const file_len = model_file.length(io) catch unreachable;
@@ -744,16 +743,8 @@ pub fn loadOBJ(filename: []const u8, allocator: std.mem.Allocator, io: std.Io) !
         const ni: usize = @intCast(index.normal_index);
         const ti: usize = @intCast(index.texcoord_index);
         vertices[i] = Vertex{
-            .position = .{
-                scene.attributes.vertices.ptr[3 * vi + 0],
-                -scene.attributes.vertices.ptr[3 * vi + 2], // Assuming Y represents up
-                scene.attributes.vertices.ptr[3 * vi + 1],
-            },
-            .normal = .{
-                scene.attributes.normals.ptr[3 * ni + 0],
-                -scene.attributes.normals.ptr[3 * ni + 2], // Assuming Y represents up
-                scene.attributes.normals.ptr[3 * ni + 1],
-            },
+            .position = objToWorld(scene.attributes.vertices.ptr, vi),
+            .normal = objToWorld(scene.attributes.normals.ptr, ni),
             .color = if (scene.attributes.colors.count > 0) .{
                 scene.attributes.colors.ptr[3 * vi + 0],
                 scene.attributes.colors.ptr[3 * vi + 1],

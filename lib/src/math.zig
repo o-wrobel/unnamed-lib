@@ -1,7 +1,10 @@
 const std = @import("std");
 
+// Convention: Z-up world, left-handed; view space left-handed (camera looks
+// +Z); NDC depth 0..1; Mat4x4 is column-major.
 pub const Vec2f = @Vector(2, f32);
 pub const Vec3f = @Vector(3, f32);
+pub const up: Vec3f = .{ 0, 0, 1 };
 
 pub const Mat4x4 = [16]f32;
 pub const identity_matrix: Mat4x4 = .{
@@ -115,20 +118,34 @@ pub fn modelTransform(scale: f32, translation: Vec3f, rotation: Rotation) Mat4x4
     return batchMatrixMultiply(&.{ scale_transform, translation_transform, rotation_transform });
 }
 
-pub fn viewTransform(focal_point: Vec3f, rotation: Rotation) Mat4x4 {
-    const translation_transform: Mat4x4 = transpose(.{
-        1, 0, 0, -focal_point[0],
-        0, 1, 0, -focal_point[1],
-        0, 0, 1, -focal_point[2],
-        0, 0, 0, 1,
+/// Left-handed lookAt: camera looks down +Z (matches the projection).
+pub fn looKAt(eye: Vec3f, center: Vec3f, up_axis: Vec3f) Mat4x4 {
+    const f = normalize(center - eye);
+    const s = normalize(cross(up_axis, f));
+    const u = cross(f, s);
+    return transpose(.{
+        s[0], s[1], s[2], -dot(s, eye),
+        u[0], u[1], u[2], -dot(u, eye),
+        f[0], f[1], f[2], -dot(f, eye),
+        0,    0,    0,    1,
     });
+}
 
-    const rotation_transform = rotationMatrix(rotation.pitch, rotation.yaw, rotation.roll);
+fn dot(a: Vec3f, b: Vec3f) f32 {
+    return @reduce(.Add, a * b);
+}
 
-    return batchMatrixMultiply(&.{
-        rotation_transform,
-        translation_transform,
-    });
+fn cross(a: Vec3f, b: Vec3f) Vec3f {
+    return .{
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    };
+}
+
+fn normalize(v: Vec3f) Vec3f {
+    const len = @sqrt(dot(v, v));
+    return .{ v[0] / len, v[1] / len, v[2] / len };
 }
 
 pub fn projectionTransform(view_ratio: f32, field_of_view: f32) Mat4x4 {
