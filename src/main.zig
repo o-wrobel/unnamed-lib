@@ -3,42 +3,46 @@ const std = @import("std");
 const ul = @import("engine");
 const imgui = @import("imgui");
 
-const Control = struct {
-    colors: [2]ul.math.Vec3f,
-    directions: [2]ul.math.Vec3f,
-    hardness: f32,
-    diffuse_strength: f32,
-    specular_strength: f32,
+var directions: [2]ul.math.Vec3f = .{
+    .{ 1.0, -0.9, 0.1 },
+    .{ 0.2, 0.4, 0.3 },
 };
+var colors: [2]ul.math.Vec3f = .{
+    .{ 1, 0.9, 0.8 },
+    .{ 1, 0.4, 0.1 },
+};
+var hardness: f32 = 2;
+var diffuse_strength: f32 = 1;
+var specular_strength: f32 = 0.5;
 
 /// Draws the UI inside the render pass. `context` is a *Control, and
 /// `width`/`height` are the render target's actual pixel size.
 fn drawUi(context: ?*anyopaque, raw_pass: *anyopaque, width: u32, height: u32) void {
+    _ = context;
     // Start the ImGui frame with the target size we are actually rendering
     // into. Doing this here (after the surface texture is acquired) avoids
     // stale display sizes on the frame where the window is resized.
     imgui.backend.newFrame(width, height);
 
-    const control: *Control = @ptrCast(@alignCast(context));
     if (imgui.begin("Cube", .{})) {
         const framerate = imgui.io.getFramerate();
         imgui.text("Framerate: {}", .{@ceil(framerate)});
-        _ = imgui.colorEdit3("Color #1", .{ .col = @ptrCast(&control.colors[0]) });
-        _ = imgui.dragFloat3("Direction #1", .{ .v = @ptrCast(&control.directions[0]) });
-        _ = imgui.colorEdit3("Color #2", .{ .col = @ptrCast(&control.colors[1]) });
-        _ = imgui.dragFloat3("Direction #2", .{ .v = @ptrCast(&control.directions[1]) });
+        _ = imgui.colorEdit3("Color #1", .{ .col = @ptrCast(&colors[0]) });
+        _ = imgui.dragFloat3("Direction #1", .{ .v = @ptrCast(&directions[0]) });
+        _ = imgui.colorEdit3("Color #2", .{ .col = @ptrCast(&colors[1]) });
+        _ = imgui.dragFloat3("Direction #2", .{ .v = @ptrCast(&directions[1]) });
         _ = imgui.dragFloat("Hardness", .{
-            .v = &control.hardness,
+            .v = &hardness,
             .min = 0,
             .speed = 0.1,
         });
         _ = imgui.dragFloat("Diffuse strength", .{
-            .v = &control.diffuse_strength,
+            .v = &diffuse_strength,
             .min = 0,
             .speed = 0.1,
         });
         _ = imgui.dragFloat("Specular strength", .{
-            .v = &control.specular_strength,
+            .v = &specular_strength,
             .min = 0,
             .speed = 0.1,
         });
@@ -68,20 +72,6 @@ pub fn main(init: std.process.Init) !void {
     defer ctx.deinit();
     const keyboard = &ctx.input.keyboard;
     const mouse = &ctx.input.mouse;
-
-    var control: Control = .{
-        .directions = .{
-            .{ 1.0, -0.9, 0.1 },
-            .{ 0.2, 0.4, 0.3 },
-        },
-        .colors = .{
-            .{ 1, 0.9, 0.8 },
-            .{ 1, 0.4, 0.1 },
-        },
-        .hardness = 2,
-        .diffuse_strength = 1,
-        .specular_strength = 0.5,
-    };
 
     // Imgui
     imgui.init(gpa);
@@ -122,13 +112,13 @@ pub fn main(init: std.process.Init) !void {
             },
             .projection_transform = .{ .vertical_field_of_view = std.math.degreesToRadians(60) },
             .lighting = .{
-                .directions = control.directions,
-                .colors = control.colors,
-                .hardness = control.hardness,
-                .diffuse_strength = control.diffuse_strength,
-                .specular_strength = control.specular_strength,
+                .directions = directions,
+                .colors = colors,
+                .hardness = hardness,
+                .diffuse_strength = diffuse_strength,
+                .specular_strength = specular_strength,
             },
         };
-        try ctx.tick(scene_options, .{ .context = &control, .draw = &drawUi });
+        try ctx.tick(scene_options, .{ .context = null, .draw = &drawUi });
     }
 }
