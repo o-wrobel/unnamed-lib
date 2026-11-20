@@ -94,6 +94,11 @@ uniform_buffer: wgpu.Buffer,
 lighting_uniform_buffer: wgpu.Buffer,
 
 pub fn init(options: InitOptions, allocator: Allocator, io: std.Io) !*Core {
+    const texture_filename = options.texture_filename;
+    const model_filename = options.model_filename;
+    const window_width = options.window_width;
+    const window_height = options.window_height;
+
     const parent_progress_node = std.Progress.start(io, .{ .root_name = "Initializing" });
     defer log.info("Initialization finished", .{});
 
@@ -114,41 +119,137 @@ pub fn init(options: InitOptions, allocator: Allocator, io: std.Io) !*Core {
         .label = "My device",
         .uncaptured_error_callback = onUncapturedError,
     });
-    var init_gpu_future = try io.concurrent(initGpu, .{
-        options.texture_filename,
-        options.window_width,
-        options.window_height,
-        device,
-        allocator,
-    });
 
-    const vertices = try loadOBJ(options.model_filename, allocator, io);
+    const vertices = try loadOBJ(model_filename, allocator, io);
     defer allocator.free(vertices);
-    log.info("Model loaded: \x1B[34m{s}", .{options.model_filename});
+    log.info("Model loaded: \x1B[34m{s}", .{model_filename});
 
     log.info("Initializing GLFW", .{});
     try glfw.init();
     glfw.windowHint(.client_api, .no_api);
     glfw.windowHint(.resizable, true);
     const window: *Window = try .create(
-        @intCast(options.window_width),
-        @intCast(options.window_height),
+        @intCast(window_width),
+        @intCast(window_height),
         "Hello, GLFW!",
         null,
         null,
     );
     log.info("Window created", .{});
 
-    // After initGpu is finished:
-    const result = try init_gpu_future.await(io);
-    const texture = result.texture.@"0";
-    const depth_texture, const depth_texture_view = result.depth;
-    const queue = result.queue;
-    const bind_group = result.bind_group;
-    const bind_group_layout = result.bind_group_layout;
-    const shader_module = result.shader;
-    const uniform_buffer = result.uniform_buffer;
-    const lighting_uniform_buffer = result.lighting_uniform_buffer;
+    const queue = try device.getQueue();
+
+    const uniform_buffer = try device.createBuffer(.{
+        .size = 2 * uniform_stride,
+        .usage = .{ .copy_dst = true, .uniform = true },
+    });
+
+    const lighting_uniform_buffer = init: {
+        const lighting_uniform_buffer = try device.createBuffer(.{
+            .size = 2 * uniform_stride,
+            .usage = .{ .copy_dst = true, .uniform = true },
+        });
+        break :init lighting_uniform_buffer;
+    };
+
+    const shader_module: wgpu.ShaderModule = try .init(device.device, .{ .wgsl = default.shader });
+    log.info("Default shader loaded", .{});
+
+    const mip_level_count: u32 = 6;
+    const texture, const texture_view = try loadTextureFromFile(texture_filename, mip_level_count, device, allocator);
+    log.info("Texture loaded: \x1B[34m{s}", .{texture_filename});
+
+    const normal_texture_filename = "normals.jpg";
+    const normal_texture, const normal_texture_view = try loadTextureFromFile("normals.jpg", mip_level_count, device, allocator);
+    log.info("Normal map loaded: \x1B[34m{s}\x1B[0m", .{normal_texture_filename});
+
+    const depth_texture, const depth_texture_view = try initDepthTexture(window_width, window_height, device);
+
+    const sampler = try device.createSampler(.{
+        .label = "My sampler",
+
+        // Address modes specify how the texture is
+        // supposed to be displayed out of its bounds
+        .address_mode_u = .clamp_to_edge,
+        .address_mode_v = .clamp_to_edge,
+        .address_mode_w = .clamp_to_edge,
+
+        .mag_filter = .linear,
+        .min_filter = .linear,
+        .mipmap_filter = .linear,
+        .lod_min_clamp = 0,
+        .lod_max_clamp = mip_level_count,
+        .compare = .undefined,
+        .max_anisotropy = 1,
+    });
+
+    // Binding
+    const bind_group_thing: BindGroupLayout = .{
+        .entries = &.{
+            // Uniform
+            .{
+                .visibility = .{ .vertex = true },
+                .resource = .{
+                    .buffer = .{
+                        .binding_type = .uniform,
+                        .min_binding_size = @sizeOf(Uniform),
+                        .has_dynamic_offset = true,
+                    },
+                },
+            },
+            // Texture
+            .{
+                .visibility = .{ .fragment = true },
+                .resource = .{
+                    .texture = .{ .sample_type = .float, .view_dimension = .@"2d" },
+                },
+            },
+            // Normal texture
+            .{
+                .visibility = .{ .fragment = true },
+                .resource = .{
+                    .texture = .{ .sample_type = .float, .view_dimension = .@"2d" },
+                },
+            },
+            // Sampler
+            .{
+                .visibility = .{ .fragment = true },
+                .resource = .{ .sampler = .{ .binding_type = .filtering } },
+            },
+            // Lighting
+            .{
+                .visibility = .{ .fragment = true },
+                .resource = .{ .buffer = .{
+                    .binding_type = .uniform,
+                    .min_binding_size = @sizeOf(LightingUniform),
+                } },
+            },
+        },
+    };
+    const bind_group_layout = try bind_group_thing.toApi(device, allocator);
+
+    const bind_thing: BindGroup = .{
+        .entries = &.{
+            .{
+                .resource = .{ .buffer = .{
+                    .buffer = uniform_buffer,
+                    .size = @sizeOf(Uniform),
+                } },
+            },
+            .{ .resource = .{ .texture = texture_view } },
+            .{ .resource = .{ .texture = normal_texture_view } },
+            .{ .resource = .{ .sampler = sampler } },
+            .{
+                .resource = .{ .buffer = .{
+                    .buffer = lighting_uniform_buffer,
+                    .size = @sizeOf(LightingUniform),
+                } },
+            },
+        },
+        .label = "Bind group",
+    };
+    const bind_group = try bind_thing.toApi(bind_group_layout, device, allocator);
+    log.info("Bind group created", .{});
 
     // Get native window handle and create a wgpu surface
     var source = wgpu.c.WGPUSurfaceSourceWaylandSurface{
@@ -245,7 +346,7 @@ pub fn init(options: InitOptions, allocator: Allocator, io: std.Io) !*Core {
         .texture = texture,
         .depth_texture = depth_texture,
         .depth_texture_view = depth_texture_view,
-        .normal_texture = result.normal_texture,
+        .normal_texture = normal_texture,
 
         .uniform_buffer = uniform_buffer,
         .lighting_uniform_buffer = lighting_uniform_buffer,
@@ -260,7 +361,7 @@ pub fn init(options: InitOptions, allocator: Allocator, io: std.Io) !*Core {
     // match the surface size, so recreate it when they disagree.
     const framebuffer_w: u32 = @intCast(window_size[0]);
     const framebuffer_h: u32 = @intCast(window_size[1]);
-    if (framebuffer_w != options.window_width or framebuffer_h != options.window_height)
+    if (framebuffer_w != window_width or framebuffer_h != window_height)
         resizeWindow(core, framebuffer_w, framebuffer_h);
 
     return core;
@@ -403,140 +504,6 @@ const GpuState = struct {
     uniform_buffer: wgpu.Buffer,
     lighting_uniform_buffer: wgpu.Buffer,
 };
-
-fn initGpu(
-    texture_filename: []const u8,
-    window_width: u32,
-    window_height: u32,
-    device: wgpu.Device,
-    allocator: Allocator,
-) !GpuState {
-    const queue = try device.getQueue();
-
-    const uniform_buffer = try device.createBuffer(.{
-        .size = 2 * uniform_stride,
-        .usage = .{ .copy_dst = true, .uniform = true },
-    });
-
-    const lighting_uniform_buffer = init: {
-        const lighting_uniform_buffer = try device.createBuffer(.{
-            .size = 2 * uniform_stride,
-            .usage = .{ .copy_dst = true, .uniform = true },
-        });
-        break :init lighting_uniform_buffer;
-    };
-
-    const shader_module: wgpu.ShaderModule = try .init(device.device, .{ .wgsl = default.shader });
-    log.info("Default shader loaded", .{});
-
-    const mip_level_count: u32 = 6;
-    const texture, const texture_view = try loadTextureFromFile(texture_filename, mip_level_count, device, allocator);
-    log.info("Texture loaded: \x1B[34m{s}", .{texture_filename});
-
-    const normal_texture_filename = "normals.jpg";
-    const normal_texture, const normal_texture_view = try loadTextureFromFile("normals.jpg", mip_level_count, device, allocator);
-    log.info("Normal map loaded: \x1B[34m{s}\x1B[0m", .{normal_texture_filename});
-
-    const depth_texture, const depth_texture_view = try initDepthTexture(window_width, window_height, device);
-
-    const sampler = try device.createSampler(.{
-        .label = "My sampler",
-
-        // Address modes specify how the texture is
-        // supposed to be displayed out of its bounds
-        .address_mode_u = .clamp_to_edge,
-        .address_mode_v = .clamp_to_edge,
-        .address_mode_w = .clamp_to_edge,
-
-        .mag_filter = .linear,
-        .min_filter = .linear,
-        .mipmap_filter = .linear,
-        .lod_min_clamp = 0,
-        .lod_max_clamp = mip_level_count,
-        .compare = .undefined,
-        .max_anisotropy = 1,
-    });
-
-    // Binding
-    const bind_group_thing: BindGroupLayout = .{
-        .entries = &.{
-            // Uniform
-            .{
-                .visibility = .{ .vertex = true },
-                .resource = .{
-                    .buffer = .{
-                        .binding_type = .uniform,
-                        .min_binding_size = @sizeOf(Uniform),
-                        .has_dynamic_offset = true,
-                    },
-                },
-            },
-            // Texture
-            .{
-                .visibility = .{ .fragment = true },
-                .resource = .{
-                    .texture = .{ .sample_type = .float, .view_dimension = .@"2d" },
-                },
-            },
-            // Normal texture
-            .{
-                .visibility = .{ .fragment = true },
-                .resource = .{
-                    .texture = .{ .sample_type = .float, .view_dimension = .@"2d" },
-                },
-            },
-            // Sampler
-            .{
-                .visibility = .{ .fragment = true },
-                .resource = .{ .sampler = .{ .binding_type = .filtering } },
-            },
-            // Lighting
-            .{
-                .visibility = .{ .fragment = true },
-                .resource = .{ .buffer = .{
-                    .binding_type = .uniform,
-                    .min_binding_size = @sizeOf(LightingUniform),
-                } },
-            },
-        },
-    };
-    const bind_group_layout = try bind_group_thing.toApi(device, allocator);
-
-    const bind_thing: BindGroup = .{
-        .entries = &.{
-            .{
-                .resource = .{ .buffer = .{
-                    .buffer = uniform_buffer,
-                    .size = @sizeOf(Uniform),
-                } },
-            },
-            .{ .resource = .{ .texture = texture_view } },
-            .{ .resource = .{ .texture = normal_texture_view } },
-            .{ .resource = .{ .sampler = sampler } },
-            .{
-                .resource = .{ .buffer = .{
-                    .buffer = lighting_uniform_buffer,
-                    .size = @sizeOf(LightingUniform),
-                } },
-            },
-        },
-        .label = "Bind group",
-    };
-    const bind_group = try bind_thing.toApi(bind_group_layout, device, allocator);
-    log.info("Bind group created", .{});
-    return .{
-        .queue = queue,
-        .texture = .{ texture, texture_view },
-        .normal_texture = normal_texture,
-        .depth = .{ depth_texture, depth_texture_view },
-        .bind_group = bind_group,
-        .bind_group_layout = bind_group_layout,
-
-        .shader = shader_module,
-        .uniform_buffer = uniform_buffer,
-        .lighting_uniform_buffer = lighting_uniform_buffer,
-    };
-}
 
 pub const ShaderVisibility = struct {
     vertex: bool = false,
