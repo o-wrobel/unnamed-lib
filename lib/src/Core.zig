@@ -8,6 +8,9 @@ const stbi = @import("stbi");
 const wgpu = @import("wgpu");
 
 const math = @import("math");
+const normalize = math.normalize;
+const dot = math.dot;
+const cross = math.cross;
 const Rotation = math.Rotation;
 const Mat4x4 = math.Mat4x4;
 const modelTransform = math.modelTransform;
@@ -55,21 +58,10 @@ pub const InitOptions = struct {
     window_width: u32,
     window_height: u32,
 
-    bind_group_layout: types.BindGroupLayout = default.bind_group_layout,
+    bind_group_layout: types.BindGroupLayout,
 };
 
 const background_color: Color = .{ 0.1, 0.1, 0.1 };
-
-/// Optional per-frame hook: invoked inside the render pass, right before it
-/// ends, so callers can draw UI (ImGui, debug overlays, ...) without the
-/// engine depending on any GUI library. `pass` is the raw
-/// WGPURenderPassEncoder, and `width`/`height` are the actual render-target
-/// size for this frame (they can differ from the window size right after a
-/// resize), so UI libraries must use them instead of re-querying the window.
-pub const UiDraw = struct {
-    context: ?*anyopaque = null,
-    draw: *const fn (?*anyopaque, *anyopaque, u32, u32) void,
-};
 
 pub const Core = @This();
 window: *Window,
@@ -754,7 +746,7 @@ fn computeTBN(corners: []const Vertex, expected_normal: Vec3f) [3]Vec3f {
 
     var tangent = normalize(e1 * @as(Vec3f, @splat(duv2[1])) - e2 * @as(Vec3f, @splat(duv1[1])));
     var bitangent = normalize(e2 * @as(Vec3f, @splat(duv1[0])) - e1 * @as(Vec3f, @splat(duv2[0])));
-    var normal = normalize(crossProduct(tangent, bitangent));
+    var normal = normalize(cross(tangent, bitangent));
 
     // Match the vertex normal's orientation, then orthonormalize.
     if (dot(normal, expected_normal) < 0) {
@@ -763,27 +755,9 @@ fn computeTBN(corners: []const Vertex, expected_normal: Vec3f) [3]Vec3f {
         normal = -normal;
     }
     tangent = normalize(tangent - expected_normal * @as(Vec3f, @splat(dot(tangent, expected_normal))));
-    bitangent = crossProduct(expected_normal, tangent);
+    bitangent = cross(expected_normal, tangent);
 
     return .{ tangent, bitangent, expected_normal };
-}
-
-fn dot(a: Vec3f, b: Vec3f) f32 {
-    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-}
-
-fn normalize(v: Vec3f) Vec3f {
-    const len = @sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
-    if (len == 0) return @splat(0);
-    return v / @as(Vec3f, @splat(len));
-}
-
-fn crossProduct(a: Vec3f, b: Vec3f) Vec3f {
-    return .{
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-    };
 }
 
 /// Called by wgpu whenever an error reaches the queue/device without being
@@ -799,6 +773,17 @@ fn onUncapturedError(err_type: wgpu.c.WGPUErrorType, message: []const u8) void {
     };
     log.err("wgpu {s} error: {s}", .{ name, message });
 }
+
+/// Optional per-frame hook: invoked inside the render pass, right before it
+/// ends, so callers can draw UI (ImGui, debug overlays, ...) without the
+/// engine depending on any GUI library. `pass` is the raw
+/// WGPURenderPassEncoder, and `width`/`height` are the actual render-target
+/// size for this frame (they can differ from the window size right after a
+/// resize), so UI libraries must use them instead of re-querying the window.
+pub const UiDraw = struct {
+    context: ?*anyopaque = null,
+    draw: *const fn (?*anyopaque, *anyopaque, u32, u32) void,
+};
 
 fn color(c: Color) wgpu.Color {
     return .{ .r = c[0], .g = c[1], .b = c[2], .a = 1 };

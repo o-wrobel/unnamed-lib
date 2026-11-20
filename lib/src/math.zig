@@ -27,6 +27,25 @@ pub const Rotation = struct {
     roll: f32 = 0,
 };
 
+// Vector operations
+
+pub fn dot(a: Vec3f, b: Vec3f) f32 {
+    return @reduce(.Add, a * b);
+}
+
+pub fn cross(a: Vec3f, b: Vec3f) Vec3f {
+    return .{
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    };
+}
+
+pub fn normalize(v: Vec3f) Vec3f {
+    const len = @sqrt(dot(v, v));
+    return .{ v[0] / len, v[1] / len, v[2] / len };
+}
+
 // Matrix functions
 
 pub fn transpose(mat: Mat4x4) Mat4x4 {
@@ -142,21 +161,4 @@ pub fn looKAt(eye: Vec3f, center: Vec3f, up_axis: Vec3f) Mat4x4 {
         f[0], f[1], f[2], -dot(f, eye),
         0,    0,    0,    1,
     });
-}
-
-fn dot(a: Vec3f, b: Vec3f) f32 {
-    return @reduce(.Add, a * b);
-}
-
-fn cross(a: Vec3f, b: Vec3f) Vec3f {
-    return .{
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-    };
-}
-
-fn normalize(v: Vec3f) Vec3f {
-    const len = @sqrt(dot(v, v));
-    return .{ v[0] / len, v[1] / len, v[2] / len };
 }

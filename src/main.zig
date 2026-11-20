@@ -1,7 +1,7 @@
 const std = @import("std");
 
 const ul = @import("engine");
-const ul_defaults = @import("defaults");
+const defaults = @import("defaults");
 const imgui = @import("imgui");
 
 var directions: [2]ul.math.Vec3f = .{
@@ -68,6 +68,7 @@ pub fn main(init: std.process.Init) !void {
         .texture_filename = texture_filename,
         .window_width = window_width,
         .window_height = window_height,
+        .bind_group_layout = defaults.bind_group_layout,
     }, gpa, io);
 
     defer ctx.deinit();
