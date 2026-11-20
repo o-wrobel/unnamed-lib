@@ -5,7 +5,7 @@ const Window = glfw.Window;
 pub const Key = glfw.Key;
 pub const MouseButton = glfw.MouseButton;
 
-const math = @import("math.zig");
+const math = @import("math");
 const Vec2f = math.Vec2f;
 
 pub const Input = @This();

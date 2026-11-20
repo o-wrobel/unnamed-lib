@@ -1,5 +1,5 @@
 const std = @import("std");
-const math = @import("math.zig");
+const math = @import("math");
 const Vec3f = math.Vec3f;
 
 pub const Camera = @This();

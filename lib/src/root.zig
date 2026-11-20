@@ -7,7 +7,7 @@ const Core = @import("Core.zig");
 pub const SceneOptions = Core.SceneOptions;
 pub const UiDraw = Core.UiDraw;
 pub const Input = @import("Input.zig");
-pub const math = @import("math.zig");
+pub const math = @import("math");
 
 pub const Context = @This();
 

@@ -17,11 +17,37 @@ pub fn build(b: *std.Build) void {
     const stbi_dep = b.dependency("zstbi", .{});
     const stbi = stbi_dep.module("root");
 
+    const math = b.createModule(.{
+        .root_source_file = b.path("src/math.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const types = b.addModule("types", .{
+        .root_source_file = b.path("src/types.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{.{ .module = wgpu, .name = "wgpu" }},
+    });
+
+    const defaults = b.addModule("defaults", .{
+        .root_source_file = b.path("src/default.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .module = math, .name = "math" },
+            .{ .module = types, .name = "types" },
+        },
+    });
+
     const root = b.addModule("unnamedlib", .{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
         .imports = &.{
+            .{ .module = math, .name = "math" },
+            .{ .module = types, .name = "types" },
+            .{ .module = defaults, .name = "defaults" },
             .{ .module = wgpu, .name = "wgpu" },
             .{ .module = glfw, .name = "glfw" },
             .{ .module = tinyobjloader, .name = "tinyobj" },

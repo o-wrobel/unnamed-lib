@@ -1,6 +1,6 @@
 const std = @import("std");
-const Core = @import("Core.zig");
-const math = @import("math.zig");
+const types = @import("types");
+const math = @import("math");
 const Vec3f = math.Vec3f;
 const Vec2f = math.Vec2f;
 const Color = Vec3f;
@@ -42,5 +42,48 @@ pub const Vertex = struct {
 
     color: Color,
     uv: Vec2f,
-    pub const buffer_layout = Core.bufferLayout(@This());
+    pub const buffer_layout = types.bufferLayout(@This());
+};
+
+pub const bind_group_layout: types.BindGroupLayout = .{
+    .entries = &.{
+        // Uniform
+        .{
+            .visibility = .{ .vertex = true },
+            .resource = .{
+                .buffer = .{
+                    .binding_type = .uniform,
+                    .min_binding_size = @sizeOf(Uniform),
+                    .has_dynamic_offset = true,
+                },
+            },
+        },
+        // Texture
+        .{
+            .visibility = .{ .fragment = true },
+            .resource = .{
+                .texture = .{ .sample_type = .float, .view_dimension = .@"2d" },
+            },
+        },
+        // Normal texture
+        .{
+            .visibility = .{ .fragment = true },
+            .resource = .{
+                .texture = .{ .sample_type = .float, .view_dimension = .@"2d" },
+            },
+        },
+        // Sampler
+        .{
+            .visibility = .{ .fragment = true },
+            .resource = .{ .sampler = .{ .binding_type = .filtering } },
+        },
+        // Lighting
+        .{
+            .visibility = .{ .fragment = true },
+            .resource = .{ .buffer = .{
+                .binding_type = .uniform,
+                .min_binding_size = @sizeOf(LightingUniform),
+            } },
+        },
+    },
 };

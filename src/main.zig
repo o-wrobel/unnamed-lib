@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const ul = @import("engine");
+const ul_defaults = @import("defaults");
 const imgui = @import("imgui");
 
 var directions: [2]ul.math.Vec3f = .{

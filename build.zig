@@ -4,8 +4,9 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const lib_dep = b.dependency("lib", .{});
-    const root = lib_dep.module("unnamedlib");
+    const unnamedlib_dep = b.dependency("lib", .{});
+    const unnamedlib = unnamedlib_dep.module("unnamedlib");
+    const ul_defaults = unnamedlib_dep.module("defaults");
 
     const zgui = b.dependency("zgui", .{ .backend = .glfw_wgpu });
     const imgui = zgui.module("root");
@@ -15,7 +16,8 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
         .imports = &.{
-            .{ .module = root, .name = "engine" },
+            .{ .module = unnamedlib, .name = "engine" },
+            .{ .module = ul_defaults, .name = "defaults" },
             .{ .module = imgui, .name = "imgui" },
         },
     });
