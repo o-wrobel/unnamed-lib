@@ -1,4 +1,5 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 
 const glfw = @import("glfw");
 pub const Window = glfw.Window;
@@ -87,7 +88,7 @@ pub const UiDraw = struct {
 
 pub const Core = @This();
 window: *Window,
-allocator: std.mem.Allocator,
+allocator: Allocator,
 device: wgpu.Device,
 queue: wgpu.Queue,
 surface: wgpu.Surface,
@@ -111,7 +112,7 @@ normal_texture: wgpu.Texture,
 uniform_buffer: wgpu.Buffer,
 lighting_uniform_buffer: wgpu.Buffer,
 
-pub fn init(options: InitOptions, allocator: std.mem.Allocator, io: std.Io) !*Core {
+pub fn init(options: InitOptions, allocator: Allocator, io: std.Io) !*Core {
     const parent_progress_node = std.Progress.start(io, .{ .root_name = "Initializing" });
     defer log.info("Initialization finished", .{});
 
@@ -402,7 +403,7 @@ pub const Image = struct {
     width: usize,
     height: usize,
 
-    pub fn deinit(self: Image, allocator: std.mem.Allocator) void {
+    pub fn deinit(self: Image, allocator: Allocator) void {
         allocator.free(self.pixels);
     }
 };
@@ -438,7 +439,7 @@ fn initGpu(
     window_width: u32,
     window_height: u32,
     device: wgpu.Device,
-    allocator: std.mem.Allocator,
+    allocator: Allocator,
 ) !GpuState {
     const queue = try device.getQueue();
 
@@ -585,7 +586,7 @@ pub const BindGroup = struct {
     entries: []const Entry,
     label: []const u8 = "",
 
-    pub fn toApi(group: BindGroup, layout: wgpu.BindGroupLayout, device: wgpu.Device, allocator: std.mem.Allocator) !wgpu.BindGroup {
+    pub fn toApi(group: BindGroup, layout: wgpu.BindGroupLayout, device: wgpu.Device, allocator: Allocator) !wgpu.BindGroup {
         const entries = try allocator.alloc(wgpu.BindGroup.Entry, group.entries.len);
         defer allocator.free(entries);
         for (group.entries, 0..) |e, i| {
@@ -642,7 +643,7 @@ pub const BindGroupLayout = struct {
         sampler: wgpu.BindGroupLayout.SamplerBindingLayout,
     };
 
-    pub fn toApi(layout: BindGroupLayout, device: wgpu.Device, allocator: std.mem.Allocator) !wgpu.BindGroupLayout {
+    pub fn toApi(layout: BindGroupLayout, device: wgpu.Device, allocator: Allocator) !wgpu.BindGroupLayout {
         const buffer = try allocator.alloc(wgpu.BindGroupLayout.Entry, layout.entries.len);
         defer allocator.free(buffer);
         for (layout.entries, 0..) |e, i| {
@@ -759,7 +760,7 @@ pub fn formatFromType(comptime T: type) wgpu.RenderPipeline.VertexFormat {
     };
 }
 
-pub fn loadTextureFromFile(filename: []const u8, mip_level_count: u32, device: wgpu.Device, allocator: std.mem.Allocator) !TextureAndView {
+pub fn loadTextureFromFile(filename: []const u8, mip_level_count: u32, device: wgpu.Device, allocator: Allocator) !TextureAndView {
     const channels = 4;
     const filename_sentinel = try allocator.dupeSentinel(u8, filename, 0);
     defer allocator.free(filename_sentinel);
@@ -833,7 +834,7 @@ fn objToWorld(ptr: [*c]f32, i: usize) Vec3f {
     return .{ ptr[3 * i + 0], -ptr[3 * i + 2], ptr[3 * i + 1] };
 }
 
-pub fn loadOBJ(filename: []const u8, allocator: std.mem.Allocator, io: std.Io) ![]Vertex {
+pub fn loadOBJ(filename: []const u8, allocator: Allocator, io: std.Io) ![]Vertex {
     const model_file = try std.Io.Dir.cwd().openFile(io, filename, .{});
     const file_len = model_file.length(io) catch unreachable;
     var file_reader = model_file.reader(io, &.{});
@@ -882,7 +883,7 @@ pub fn loadOBJ(filename: []const u8, allocator: std.mem.Allocator, io: std.Io) !
     return vertices;
 }
 
-fn createMipMap(previous_image: Image, allocator: std.mem.Allocator) !Image {
+fn createMipMap(previous_image: Image, allocator: Allocator) !Image {
     const width = previous_image.width / 2;
     const height = previous_image.height / 2;
     const pixels = try allocator.alloc([4]u8, width * height);
