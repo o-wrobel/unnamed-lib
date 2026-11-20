@@ -40,6 +40,17 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    const input = b.addModule("Input", .{
+        .root_source_file = b.path("src/Input.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .module = math, .name = "math" },
+            .{ .module = glfw, .name = "glfw" },
+        },
+    });
+    input.linkLibrary(glfw_lib);
+
     const root = b.addModule("unnamedlib", .{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
@@ -48,6 +59,7 @@ pub fn build(b: *std.Build) void {
             .{ .module = math, .name = "math" },
             .{ .module = types, .name = "types" },
             .{ .module = defaults, .name = "defaults" },
+            .{ .module = input, .name = "Input" },
             .{ .module = wgpu, .name = "wgpu" },
             .{ .module = glfw, .name = "glfw" },
             .{ .module = tinyobjloader, .name = "tinyobj" },
