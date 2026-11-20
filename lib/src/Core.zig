@@ -10,11 +10,14 @@ const wgpu = @import("wgpu");
 const math = @import("math.zig");
 const Rotation = math.Rotation;
 const Mat4x4 = math.Mat4x4;
-const identity_matrix = math.identity_matrix;
 const modelTransform = math.modelTransform;
 const projectionTransform = math.projectionTransform;
-const Vec2f = math.Vec2f;
 const Vec3f = math.Vec3f;
+
+const default = @import("default.zig");
+const Uniform = default.Uniform;
+const LightingUniform = default.LightingUniform;
+const Vertex = default.Vertex;
 
 const log = std.log.scoped(.UnnamedLib);
 
@@ -50,30 +53,8 @@ pub const InitOptions = struct {
     window_height: u32,
 };
 
-pub const MyUniform = extern struct {
-    model_tranform: Mat4x4 align(16) = identity_matrix,
-    view_transform: Mat4x4 align(16) = identity_matrix,
-    projection_transform: Mat4x4 align(16) = identity_matrix,
-    camera_world_position: [3]f32,
-    time: f32 align(16) = 0,
-
-    pub fn stride() comptime_int {
-        return @sizeOf(@This());
-    }
-};
-
-pub const LightingUniform = extern struct {
-    directions: [2][4]f32 align(16),
-    colors: [2][4]f32 align(16),
-    hardness: f32 = 2,
-    diffuse_strength: f32 = 1,
-    specular_strength: f32 = 0.5,
-};
-
-const uniform_stride = MyUniform.stride();
+const uniform_stride = Uniform.stride();
 const background_color: Color = .{ 0.1, 0.1, 0.1 };
-
-const default_shader_data = @embedFile("default.wgsl");
 
 /// Optional per-frame hook: invoked inside the render pass, right before it
 /// ends, so callers can draw UI (ImGui, debug overlays, ...) without the
@@ -317,7 +298,7 @@ pub fn tick(core: *Core, scene_options: SceneOptions, ui_draw: ?UiDraw) !void {
         aspect_ratio,
         scene_options.projection_transform.vertical_field_of_view,
     );
-    const uniform: MyUniform = .{
+    const uniform: Uniform = .{
         .model_tranform = modelTransform(
             scene_options.model_transform.scale,
             scene_options.model_transform.translation,
@@ -327,7 +308,7 @@ pub fn tick(core: *Core, scene_options: SceneOptions, ui_draw: ?UiDraw) !void {
         .camera_world_position = scene_options.camera.position(),
         .projection_transform = projection_transform,
     };
-    core.queue.writeBuffer(MyUniform, core.uniform_buffer, 0, &.{uniform});
+    core.queue.writeBuffer(Uniform, core.uniform_buffer, 0, &.{uniform});
 
     const lighting_uniform: LightingUniform = .{
         .directions = .{
@@ -407,17 +388,6 @@ pub const Image = struct {
         allocator.free(self.pixels);
     }
 };
-pub const Vertex = struct {
-    position: Vec3f,
-
-    tangent: Vec3f,
-    bitangent: Vec3f,
-    normal: Vec3f,
-
-    color: Color,
-    uv: Vec2f,
-    pub const buffer_layout = bufferLayout(@This());
-};
 const TextureAndView = struct { wgpu.Texture, wgpu.TextureView };
 const GpuState = struct {
     queue: wgpu.Queue,
@@ -456,7 +426,7 @@ fn initGpu(
         break :init lighting_uniform_buffer;
     };
 
-    const shader_module: wgpu.ShaderModule = try .init(device.device, .{ .wgsl = default_shader_data });
+    const shader_module: wgpu.ShaderModule = try .init(device.device, .{ .wgsl = default.shader });
     log.info("Default shader loaded", .{});
 
     const mip_level_count: u32 = 6;
@@ -496,7 +466,7 @@ fn initGpu(
                 .resource = .{
                     .buffer = .{
                         .binding_type = .uniform,
-                        .min_binding_size = @sizeOf(MyUniform),
+                        .min_binding_size = @sizeOf(Uniform),
                         .has_dynamic_offset = true,
                     },
                 },
@@ -537,7 +507,7 @@ fn initGpu(
             .{
                 .resource = .{ .buffer = .{
                     .buffer = uniform_buffer,
-                    .size = @sizeOf(MyUniform),
+                    .size = @sizeOf(Uniform),
                 } },
             },
             .{ .resource = .{ .texture = texture_view } },
