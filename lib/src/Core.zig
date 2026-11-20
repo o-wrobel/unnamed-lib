@@ -86,6 +86,7 @@ queue: wgpu.Queue,
 surface: wgpu.Surface,
 surface_format: wgpu.Texture.Format,
 bind_group: wgpu.BindGroup,
+bind_group_layout: wgpu.BindGroupLayout,
 render_pipeline: wgpu.RenderPipeline,
 
 vertex_buffer: wgpu.Buffer,
@@ -253,6 +254,7 @@ pub fn init(
         .surface = surface,
         .surface_format = surface_format,
         .bind_group = bind_group,
+        .bind_group_layout = bind_group_layout,
         .render_pipeline = render_pipeline,
         .vertex_buffer = vertex_buffer,
         .vertex_count = vertex_count,
@@ -288,6 +290,7 @@ pub fn deinit(self: *Core) void {
     self.surface.deinit();
     self.window.destroy();
     self.bind_group.deinit();
+    self.bind_group_layout.deinit();
     self.render_pipeline.deinit();
 
     self.vertex_buffer.deinit();
@@ -484,7 +487,7 @@ fn initGpu(
     });
 
     // Binding
-    const bind_group_thing: BindGroup.Layout = .{
+    const bind_group_thing: BindGroupLayout = .{
         .entries = &.{
             // Uniform
             .{
@@ -528,42 +531,27 @@ fn initGpu(
     };
     const bind_group_layout = try bind_group_thing.toApi(device, allocator);
 
-    const bind_group = init: {
-        const uniform_binding: wgpu.BindGroup.Entry = .{
-            .binding = 0,
-            .buffer = uniform_buffer,
-            .offset = 0,
-            .size = @sizeOf(MyUniform),
-        };
-        const texture_binding: wgpu.BindGroup.Entry = .{
-            .binding = 1,
-            .texture_view = texture_view,
-        };
-        const normal_texture_binding: wgpu.BindGroup.Entry = .{
-            .binding = 2,
-            .texture_view = normal_texture_view,
-        };
-        const sampler_binding: wgpu.BindGroup.Entry = .{
-            .binding = 3,
-            .sampler = sampler,
-        };
-        const lighting_uniform_binding: wgpu.BindGroup.Entry = .{
-            .binding = 4,
-            .buffer = lighting_uniform_buffer,
-            .size = @sizeOf(LightingUniform),
-        };
-        break :init try device.createBindGroup(.{
-            .label = "My bind group",
-            .layout = bind_group_layout,
-            .entries = &.{
-                uniform_binding,
-                texture_binding,
-                normal_texture_binding,
-                sampler_binding,
-                lighting_uniform_binding,
+    const bind_thing: BindGroup = .{
+        .entries = &.{
+            .{
+                .resource = .{ .buffer = .{
+                    .buffer = uniform_buffer,
+                    .size = @sizeOf(MyUniform),
+                } },
             },
-        });
+            .{ .resource = .{ .texture = texture_view } },
+            .{ .resource = .{ .texture = normal_texture_view } },
+            .{ .resource = .{ .sampler = sampler } },
+            .{
+                .resource = .{ .buffer = .{
+                    .buffer = lighting_uniform_buffer,
+                    .size = @sizeOf(LightingUniform),
+                } },
+            },
+        },
+        .label = "Bind group",
     };
+    const bind_group = try bind_thing.toApi(bind_group_layout, device, allocator);
     log.info("Bind group created", .{});
     return .{
         .queue = queue,
@@ -594,49 +582,92 @@ pub const ShaderVisibility = struct {
 };
 
 pub const BindGroup = struct {
-    pub const Layout = struct {
-        entries: []const Entry,
-        label: []const u8 = "",
+    entries: []const Entry,
+    label: []const u8 = "",
 
-        pub const Entry = struct {
-            binding: ?u32 = null,
-            visibility: ShaderVisibility = .{},
-            resource: Resource,
-        };
-
-        pub const Resource = union(enum) {
-            buffer: wgpu.BindGroupLayout.BufferBindingLayout,
-            texture: wgpu.BindGroupLayout.TextureBindingLayout,
-            sampler: wgpu.BindGroupLayout.SamplerBindingLayout,
-        };
-
-        pub fn toApi(layout: Layout, device: wgpu.Device, allocator: std.mem.Allocator) !wgpu.BindGroupLayout {
-            const buffer = try allocator.alloc(wgpu.BindGroupLayout.Entry, layout.entries.len);
-            defer allocator.free(buffer);
-            for (layout.entries, 0..) |e, i| {
-                const binding: u32 = @intCast(e.binding orelse i);
-                const wgpu_entry: wgpu.BindGroupLayout.Entry = switch (e.resource) {
-                    .buffer => |b| .{
-                        .binding = binding,
-                        .visibility = e.visibility.toApi(),
-                        .buffer = b,
-                    },
-                    .texture => |t| .{
-                        .binding = binding,
-                        .visibility = e.visibility.toApi(),
-                        .texture = t,
-                    },
-                    .sampler => |s| .{
-                        .binding = binding,
-                        .visibility = e.visibility.toApi(),
-                        .sampler = s,
-                    },
-                };
-                buffer[i] = wgpu_entry;
-            }
-            return try device.createBindGroupLayout(.{ .entries = buffer, .label = layout.label });
+    pub fn toApi(group: BindGroup, layout: wgpu.BindGroupLayout, device: wgpu.Device, allocator: std.mem.Allocator) !wgpu.BindGroup {
+        const entries = try allocator.alloc(wgpu.BindGroup.Entry, group.entries.len);
+        defer allocator.free(entries);
+        for (group.entries, 0..) |e, i| {
+            const binding: u32 = @intCast(e.binding orelse i);
+            const wgpu_entry: wgpu.BindGroup.Entry = switch (e.resource) {
+                .buffer => |b| .{
+                    .binding = binding,
+                    .buffer = b.buffer,
+                    .size = b.size,
+                },
+                .texture => |t| .{
+                    .binding = binding,
+                    .texture_view = t,
+                },
+                .sampler => |s| .{
+                    .binding = binding,
+                    .sampler = s,
+                },
+            };
+            entries[i] = wgpu_entry;
         }
+        return try device.createBindGroup(.{
+            .entries = entries,
+            .layout = layout,
+            .label = group.label,
+        });
+    }
+
+    pub const Entry = struct {
+        binding: ?u32 = null,
+        offset: u64 = 0,
+        resource: Resource,
     };
+    pub const Resource = union(enum) {
+        buffer: struct { buffer: wgpu.Buffer, size: u32 },
+        texture: wgpu.TextureView,
+        sampler: wgpu.Sampler,
+    };
+};
+
+pub const BindGroupLayout = struct {
+    entries: []const Entry,
+    label: []const u8 = "",
+
+    pub const Entry = struct {
+        binding: ?u32 = null,
+        visibility: ShaderVisibility = .{},
+        resource: Resource,
+    };
+
+    pub const Resource = union(enum) {
+        buffer: wgpu.BindGroupLayout.BufferBindingLayout,
+        texture: wgpu.BindGroupLayout.TextureBindingLayout,
+        sampler: wgpu.BindGroupLayout.SamplerBindingLayout,
+    };
+
+    pub fn toApi(layout: BindGroupLayout, device: wgpu.Device, allocator: std.mem.Allocator) !wgpu.BindGroupLayout {
+        const buffer = try allocator.alloc(wgpu.BindGroupLayout.Entry, layout.entries.len);
+        defer allocator.free(buffer);
+        for (layout.entries, 0..) |e, i| {
+            const binding: u32 = @intCast(e.binding orelse i);
+            const wgpu_entry: wgpu.BindGroupLayout.Entry = switch (e.resource) {
+                .buffer => |b| .{
+                    .binding = binding,
+                    .visibility = e.visibility.toApi(),
+                    .buffer = b,
+                },
+                .texture => |t| .{
+                    .binding = binding,
+                    .visibility = e.visibility.toApi(),
+                    .texture = t,
+                },
+                .sampler => |s| .{
+                    .binding = binding,
+                    .visibility = e.visibility.toApi(),
+                    .sampler = s,
+                },
+            };
+            buffer[i] = wgpu_entry;
+        }
+        return try device.createBindGroupLayout(.{ .entries = buffer, .label = layout.label });
+    }
 };
 
 fn initDepthTexture(surface_width: u32, surface_height: u32, device: wgpu.Device) !TextureAndView {
