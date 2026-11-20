@@ -42,6 +42,13 @@ pub const SceneOptions = struct {
     lighting: Lighting = .{},
 };
 
+pub const InitOptions = struct {
+    model_filename: []const u8,
+    texture_filename: []const u8,
+    window_width: u32,
+    window_height: u32,
+};
+
 pub const MyUniform = extern struct {
     model_tranform: Mat4x4 align(16) = identity_matrix,
     view_transform: Mat4x4 align(16) = identity_matrix,
@@ -104,14 +111,7 @@ normal_texture: wgpu.Texture,
 uniform_buffer: wgpu.Buffer,
 lighting_uniform_buffer: wgpu.Buffer,
 
-pub fn init(
-    model_filename: []const u8,
-    texture_filename: []const u8,
-    window_width: u32,
-    window_height: u32,
-    allocator: std.mem.Allocator,
-    io: std.Io,
-) !*Core {
+pub fn init(options: InitOptions, allocator: std.mem.Allocator, io: std.Io) !*Core {
     const parent_progress_node = std.Progress.start(io, .{ .root_name = "Initializing" });
     defer log.info("Initialization finished", .{});
 
@@ -133,24 +133,24 @@ pub fn init(
         .uncaptured_error_callback = onUncapturedError,
     });
     var init_gpu_future = try io.concurrent(initGpu, .{
-        texture_filename,
-        window_width,
-        window_height,
+        options.texture_filename,
+        options.window_width,
+        options.window_height,
         device,
         allocator,
     });
 
-    const vertices = try loadOBJ(model_filename, allocator, io);
+    const vertices = try loadOBJ(options.model_filename, allocator, io);
     defer allocator.free(vertices);
-    log.info("Model loaded: \x1B[34m{s}", .{model_filename});
+    log.info("Model loaded: \x1B[34m{s}", .{options.model_filename});
 
     log.info("Initializing GLFW", .{});
     try glfw.init();
     glfw.windowHint(.client_api, .no_api);
     glfw.windowHint(.resizable, true);
     const window: *Window = try .create(
-        @intCast(window_width),
-        @intCast(window_height),
+        @intCast(options.window_width),
+        @intCast(options.window_height),
         "Hello, GLFW!",
         null,
         null,
@@ -278,7 +278,7 @@ pub fn init(
     // match the surface size, so recreate it when they disagree.
     const framebuffer_w: u32 = @intCast(window_size[0]);
     const framebuffer_h: u32 = @intCast(window_size[1]);
-    if (framebuffer_w != window_width or framebuffer_h != window_height)
+    if (framebuffer_w != options.window_width or framebuffer_h != options.window_height)
         resizeWindow(core, framebuffer_w, framebuffer_h);
 
     return core;

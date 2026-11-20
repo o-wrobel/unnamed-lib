@@ -61,14 +61,14 @@ pub fn main(init: std.process.Init) !void {
 
     const window_width = 640;
     const window_height = 480;
-    var ctx = try ul.init(
-        model_filename,
-        texture_filename,
-        window_width,
-        window_height,
-        gpa,
-        io,
-    );
+
+    var ctx = try ul.init(.{
+        .model_filename = model_filename,
+        .texture_filename = texture_filename,
+        .window_width = window_width,
+        .window_height = window_height,
+    }, gpa, io);
+
     defer ctx.deinit();
     const keyboard = &ctx.input.keyboard;
     const mouse = &ctx.input.mouse;

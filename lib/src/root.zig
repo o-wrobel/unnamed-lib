@@ -20,22 +20,8 @@ delta_time: f32 = 0,
 
 const log = std.log.scoped(.UnnamedLib);
 
-pub fn init(
-    model_filename: []const u8,
-    texture_filename: []const u8,
-    window_width: u32,
-    window_height: u32,
-    allocator: std.mem.Allocator,
-    io: std.Io,
-) !Context {
-    const core = try Core.init(
-        model_filename,
-        texture_filename,
-        window_width,
-        window_height,
-        allocator,
-        io,
-    );
+pub fn init(options: Core.InitOptions, allocator: std.mem.Allocator, io: std.Io) !Context {
+    const core = try Core.init(options, allocator, io);
     const input = try Input.init(core.window);
     log.info("Input system created", .{});
     const context: Context = .{
