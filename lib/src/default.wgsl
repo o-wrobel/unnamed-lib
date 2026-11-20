@@ -15,23 +15,28 @@ struct LightingUniform {
 }
 
 @group(0) @binding(0) var<uniform> my_uniform: MyUniform;
-@group(0) @binding(1) var gradient_texture: texture_2d<f32>;
-@group(0) @binding(2) var texture_sampler: sampler;
-@group(0) @binding(3) var<uniform> lighting: LightingUniform;
+@group(0) @binding(1) var diffuse_texture: texture_2d<f32>;
+@group(0) @binding(2) var normal_texture: texture_2d<f32>;
+@group(0) @binding(3) var texture_sampler: sampler;
+@group(0) @binding(4) var<uniform> lighting: LightingUniform;
 
 struct VertexInput {
     @location(0) position: vec3f,
-    @location(1) normal: vec3f,
-    @location(2) color: vec3f,
-    @location(3) uv: vec2f,
+    @location(1) tangent: vec3f,
+    @location(2) bitangent: vec3f,
+    @location(3) normal: vec3f,
+    @location(4) color: vec3f,
+    @location(5) uv: vec2f,
 }
 
 struct VertexOutput {
     @builtin(position) position: vec4f,
     @location(0) color: vec3f,
-    @location(1) normal: vec3f,
-    @location(2) uv: vec2f,
-    @location(3) view_direction: vec3f,
+    @location(1) tangent: vec3f,
+    @location(2) bitangent: vec3f,
+    @location(3) normal: vec3f,
+    @location(4) uv: vec2f,
+    @location(5) view_direction: vec3f,
 }
 
 @vertex
@@ -48,6 +53,8 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     let world_position = model * vec4f(in.position, 1);
     out.position = (projection * view * world_position);
     out.color = in.color;
+    out.tangent = (model * vec4f(in.tangent, 0)).xyz;
+    out.bitangent = (model * vec4f(in.bitangent, 0)).xyz;
     out.normal = (my_uniform.model_transform * vec4f(in.normal, 0)).xyz;
     out.uv = in.uv;
     out.view_direction = my_uniform.camera_world_position - world_position.xyz;
@@ -58,9 +65,20 @@ fn vs_main(in: VertexInput) -> VertexOutput {
 fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let V = normalize(in.view_direction);
 
-    let normal = normalize(in.normal);
+    let normal_strength = 1.;
+    let encoded_normal = textureSample(normal_texture, texture_sampler, in.uv).rgb;
+    let local_normal = encoded_normal * 2 - 1;
 
-    let base_color = textureSample(gradient_texture, texture_sampler, in.uv).rgb;
+    let local_to_world = mat3x3f(
+        normalize(in.tangent),
+        normalize(in.bitangent),
+        normalize(in.normal),
+    );
+    let world_normal = local_to_world * local_normal;
+
+    let normal = normalize(mix(in.normal, world_normal, normal_strength));
+
+    let base_color = textureSample(diffuse_texture, texture_sampler, in.uv).rgb;
     var shading_color: vec3f = vec3f(0);
     for (var i: u32 = 0; i < 2; i++) {
         let light_direction = normalize(lighting.directions[i].xyz);

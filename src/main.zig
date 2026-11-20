@@ -56,7 +56,7 @@ pub fn main(init: std.process.Init) !void {
     const gpa = init.gpa;
     var args = init.minimal.args.iterate();
     _ = args.next();
-    const model_filename = if (args.next()) |f| f else "cube.obj";
+    const model_filename = if (args.next()) |f| f else "cylinder.obj";
     const texture_filename = if (args.next()) |f| f else "texture.jpg";
 
     const window_width = 640;

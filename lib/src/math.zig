@@ -118,6 +118,19 @@ pub fn modelTransform(scale: f32, translation: Vec3f, rotation: Rotation) Mat4x4
     return batchMatrixMultiply(&.{ scale_transform, translation_transform, rotation_transform });
 }
 
+pub fn projectionTransform(view_ratio: f32, field_of_view: f32) Mat4x4 {
+    const focal_length: f32 = 1.0 / @tan(field_of_view / 2.0);
+    const near: f32 = 0.01;
+    const far: f32 = 100;
+    const divider = 1.0 / (focal_length * (far - near));
+    return transpose(.{
+        1, 0,          0,                  0,
+        0, view_ratio, 0,                  0,
+        0, 0,          far * divider,      -far * near * divider,
+        0, 0,          1.0 / focal_length, 0,
+    });
+}
+
 /// Left-handed lookAt: camera looks down +Z (matches the projection).
 pub fn looKAt(eye: Vec3f, center: Vec3f, up_axis: Vec3f) Mat4x4 {
     const f = normalize(center - eye);
@@ -146,17 +159,4 @@ fn cross(a: Vec3f, b: Vec3f) Vec3f {
 fn normalize(v: Vec3f) Vec3f {
     const len = @sqrt(dot(v, v));
     return .{ v[0] / len, v[1] / len, v[2] / len };
-}
-
-pub fn projectionTransform(view_ratio: f32, field_of_view: f32) Mat4x4 {
-    const focal_length: f32 = 1.0 / @tan(field_of_view / 2.0);
-    const near: f32 = 0.01;
-    const far: f32 = 100;
-    const divider = 1.0 / (focal_length * (far - near));
-    return transpose(.{
-        1, 0,          0,                  0,
-        0, view_ratio, 0,                  0,
-        0, 0,          far * divider,      -far * near * divider,
-        0, 0,          1.0 / focal_length, 0,
-    });
 }

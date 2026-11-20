@@ -78,20 +78,6 @@ pub const UiDraw = struct {
     draw: *const fn (?*anyopaque, *anyopaque, u32, u32) void,
 };
 
-/// Called by wgpu whenever an error reaches the queue/device without being
-/// captured by an error scope. Logging it here turns the terse "pipeline is
-/// invalid" submit-time panic into the actual validation message.
-fn onUncapturedError(err_type: wgpu.c.WGPUErrorType, message: []const u8) void {
-    const name: []const u8 = switch (err_type) {
-        wgpu.c.WGPUErrorType_Validation => "Validation",
-        wgpu.c.WGPUErrorType_OutOfMemory => "OutOfMemory",
-        wgpu.c.WGPUErrorType_Internal => "Internal",
-        wgpu.c.WGPUErrorType_Unknown => "Unknown",
-        else => "NoError/Other",
-    };
-    log.err("wgpu {s} error: {s}", .{ name, message });
-}
-
 pub const Core = @This();
 window: *Window,
 allocator: std.mem.Allocator,
@@ -111,6 +97,8 @@ depth_texture: wgpu.Texture,
 depth_texture_view: wgpu.TextureView,
 
 texture: wgpu.Texture,
+
+normal_texture: wgpu.Texture,
 
 uniform_buffer: wgpu.Buffer,
 lighting_uniform_buffer: wgpu.Buffer,
@@ -269,9 +257,12 @@ pub fn init(
         .vertex_buffer = vertex_buffer,
         .vertex_count = vertex_count,
         .index_count = @intCast(vertices.len),
+
         .texture = texture,
         .depth_texture = depth_texture,
         .depth_texture_view = depth_texture_view,
+        .normal_texture = result.normal_texture,
+
         .uniform_buffer = uniform_buffer,
         .lighting_uniform_buffer = lighting_uniform_buffer,
     };
@@ -414,7 +405,11 @@ pub const Image = struct {
 };
 pub const Vertex = struct {
     position: Vec3f,
+
+    tangent: Vec3f,
+    bitangent: Vec3f,
     normal: Vec3f,
+
     color: Color,
     uv: Vec2f,
     pub const buffer_layout = bufferLayout(@This());
@@ -424,6 +419,7 @@ const GpuState = struct {
     queue: wgpu.Queue,
 
     texture: TextureAndView,
+    normal_texture: wgpu.Texture,
     depth: TextureAndView,
 
     bind_group: wgpu.BindGroup,
@@ -470,6 +466,8 @@ fn initGpu(
 
     const mip_level_count: u32 = 8;
     const texture, const texture_view = try loadTextureFromFile(texture_filename, mip_level_count, device, allocator);
+    const normal_texture, const normal_texture_view = try loadTextureFromFile("normals.jpg", mip_level_count, device, allocator);
+
     log.info("Texture loaded: \x1B[34m{s}", .{texture_filename});
     const depth_texture, const depth_texture_view = try initDepthTexture(window_width, window_height, device);
 
@@ -506,13 +504,18 @@ fn initGpu(
         .visibility = .{ .fragment = true },
         .texture = .{ .sample_type = .float, .view_dimension = .@"2d" },
     };
-    const sampler_binding_layout: wgpu.BindGroupLayout.Entry = .{
+    const normal_texture_binding_layout: wgpu.BindGroupLayout.Entry = .{
         .binding = 2,
+        .visibility = .{ .fragment = true },
+        .texture = .{ .sample_type = .float, .view_dimension = .@"2d" },
+    };
+    const sampler_binding_layout: wgpu.BindGroupLayout.Entry = .{
+        .binding = 3,
         .visibility = .{ .fragment = true },
         .sampler = .{ .binding_type = .filtering },
     };
     const lighting_uniform_binding_layout: wgpu.BindGroupLayout.Entry = .{
-        .binding = 3,
+        .binding = 4,
         .visibility = .{ .fragment = true },
         .buffer = .{
             .binding_type = .uniform,
@@ -524,6 +527,7 @@ fn initGpu(
         .entries = &.{
             uniform_binding_layout,
             texture_binding_layout,
+            normal_texture_binding_layout,
             sampler_binding_layout,
             lighting_uniform_binding_layout,
         },
@@ -540,12 +544,16 @@ fn initGpu(
             .binding = 1,
             .texture_view = texture_view,
         };
-        const sampler_binding: wgpu.BindGroup.Entry = .{
+        const normal_texture_binding: wgpu.BindGroup.Entry = .{
             .binding = 2,
+            .texture_view = normal_texture_view,
+        };
+        const sampler_binding: wgpu.BindGroup.Entry = .{
+            .binding = 3,
             .sampler = sampler,
         };
         const lighting_uniform_binding: wgpu.BindGroup.Entry = .{
-            .binding = 3,
+            .binding = 4,
             .buffer = lighting_uniform_buffer,
             .size = @sizeOf(LightingUniform),
         };
@@ -555,6 +563,7 @@ fn initGpu(
             .entries = &.{
                 uniform_binding,
                 texture_binding,
+                normal_texture_binding,
                 sampler_binding,
                 lighting_uniform_binding,
             },
@@ -564,6 +573,7 @@ fn initGpu(
     return .{
         .queue = queue,
         .texture = .{ texture, texture_view },
+        .normal_texture = normal_texture,
         .depth = .{ depth_texture, depth_texture_view },
         .bind_group = bind_group,
         .bind_group_layout = bind_group_layout,
@@ -753,8 +763,11 @@ pub fn loadOBJ(filename: []const u8, allocator: std.mem.Allocator, io: std.Io) !
         const vi: usize = @intCast(index.vertex_index);
         const ni: usize = @intCast(index.normal_index);
         const ti: usize = @intCast(index.texcoord_index);
+
         vertices[i] = Vertex{
             .position = objToWorld(scene.attributes.vertices.ptr, vi),
+            .tangent = @splat(0),
+            .bitangent = @splat(0),
             .normal = objToWorld(scene.attributes.normals.ptr, ni),
             .color = if (scene.attributes.colors.count > 0) .{
                 scene.attributes.colors.ptr[3 * vi + 0],
@@ -766,6 +779,18 @@ pub fn loadOBJ(filename: []const u8, allocator: std.mem.Allocator, io: std.Io) !
                 1 - scene.attributes.texcoords.ptr[2 * ti + 1],
             },
         };
+    }
+
+    // Per triangle, compute tangent/bitangent per corner (normal stays the
+    // smooth OBJ normal).
+    var t: usize = 0;
+    while (t + 2 < shape.mesh.num_indices) : (t += 3) {
+        const corners = vertices[t .. t + 3];
+        inline for (0..3) |k| {
+            const tbn = computeTBN(corners, vertices[t + k].normal);
+            vertices[t + k].tangent = tbn[0];
+            vertices[t + k].bitangent = tbn[1];
+        }
     }
 
     return vertices;
@@ -829,6 +854,68 @@ fn getNextSurfaceTextureView(surface: wgpu.Surface) !?SurfaceTarget {
         .width = surface_texture.getWidth(),
         .height = surface_texture.getHeight(),
     };
+}
+
+fn computeTBN(corners: []const Vertex, expected_normal: Vec3f) [3]Vec3f {
+    const p0 = corners[0].position;
+    const p1 = corners[1].position;
+    const p2 = corners[2].position;
+
+    const e1 = p1 - p0;
+    const e2 = p2 - p0;
+
+    const duv1 = corners[1].uv - corners[0].uv;
+    const duv2 = corners[2].uv - corners[0].uv;
+
+    const det = duv1[0] * duv2[1] - duv2[0] * duv1[1];
+    if (det == 0) return .{ .{ 1, 0, 0 }, .{ 0, 1, 0 }, expected_normal };
+
+    var tangent = normalize(e1 * @as(Vec3f, @splat(duv2[1])) - e2 * @as(Vec3f, @splat(duv1[1])));
+    var bitangent = normalize(e2 * @as(Vec3f, @splat(duv1[0])) - e1 * @as(Vec3f, @splat(duv2[0])));
+    var normal = normalize(crossProduct(tangent, bitangent));
+
+    // Match the vertex normal's orientation, then orthonormalize.
+    if (dot(normal, expected_normal) < 0) {
+        tangent = -tangent;
+        bitangent = -bitangent;
+        normal = -normal;
+    }
+    tangent = normalize(tangent - expected_normal * @as(Vec3f, @splat(dot(tangent, expected_normal))));
+    bitangent = crossProduct(expected_normal, tangent);
+
+    return .{ tangent, bitangent, expected_normal };
+}
+
+fn dot(a: Vec3f, b: Vec3f) f32 {
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+
+fn normalize(v: Vec3f) Vec3f {
+    const len = @sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+    if (len == 0) return @splat(0);
+    return v / @as(Vec3f, @splat(len));
+}
+
+fn crossProduct(a: Vec3f, b: Vec3f) Vec3f {
+    return .{
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    };
+}
+
+/// Called by wgpu whenever an error reaches the queue/device without being
+/// captured by an error scope. Logging it here turns the terse "pipeline is
+/// invalid" submit-time panic into the actual validation message.
+fn onUncapturedError(err_type: wgpu.c.WGPUErrorType, message: []const u8) void {
+    const name: []const u8 = switch (err_type) {
+        wgpu.c.WGPUErrorType_Validation => "Validation",
+        wgpu.c.WGPUErrorType_OutOfMemory => "OutOfMemory",
+        wgpu.c.WGPUErrorType_Internal => "Internal",
+        wgpu.c.WGPUErrorType_Unknown => "Unknown",
+        else => "NoError/Other",
+    };
+    log.err("wgpu {s} error: {s}", .{ name, message });
 }
 
 fn color(c: Color) wgpu.Color {
